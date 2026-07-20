@@ -372,6 +372,7 @@ public class LayerImportExportUtils
         aFeature.setTraits(aExFeature.getTraits());
         aFeature.setCuratable(aExFeature.isCuratable());
         aFeature.setRank(aExFeature.getRank());
+        aFeature.setVisibleIf(aExFeature.getVisibleIf());
 
         aAnnotationService.createFeature(aFeature);
     }
@@ -427,6 +428,7 @@ public class LayerImportExportUtils
             exFeature.setTraits(feature.getTraits());
             exFeature.setCuratable(feature.isCuratable());
             exFeature.setRank(feature.getRank());
+            exFeature.setVisibleIf(feature.getVisibleIf());
 
             if (feature.getTagset() != null) {
                 var tagSet = feature.getTagset();

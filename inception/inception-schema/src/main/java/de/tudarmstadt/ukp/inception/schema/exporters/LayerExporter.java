@@ -187,6 +187,7 @@ public class LayerExporter
         exFeature.setTraits(feature.getTraits());
         exFeature.setCuratable(feature.isCuratable());
         exFeature.setRank(feature.getRank());
+        exFeature.setVisibleIf(feature.getVisibleIf());
 
         if (feature.getTagset() != null) {
             var tagSet = feature.getTagset();
@@ -334,6 +335,7 @@ public class LayerExporter
         aFeature.setTraits(aExFeature.getTraits());
         aFeature.setCuratable(aExFeature.isCuratable());
         aFeature.setRank(aExFeature.getRank());
+        aFeature.setVisibleIf(aExFeature.getVisibleIf());
 
         if (aExFeature.getTagSet() != null) {
             var tagset = annotationService.getTagSet(aExFeature.getTagSet().getName(), aProject);

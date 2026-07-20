@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import org.apache.uima.cas.CAS;
 import org.apache.wicket.ajax.AjaxRequestTarget;
@@ -56,6 +57,7 @@ import de.tudarmstadt.ukp.clarin.webanno.api.annotation.exception.ValidationExce
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.paging.NoPagingStrategy;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.preferences.UserPreferencesService;
 import de.tudarmstadt.ukp.clarin.webanno.constraints.evaluator.ConstraintsEvaluator;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfEvaluator;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
@@ -424,11 +426,20 @@ public abstract class AnnotationPageBase
         var annotationFsType = editorCas.getAnnotationType();
         try (var fses = editorCas.select(layerType)) {
             for (var fs : fses) {
+                Function<String, String> featureValues = name -> {
+                    var siblingFeature = fs.getType().getFeatureByBaseName(name);
+                    return siblingFeature == null ? null
+                            : fs.getFeatureValueAsString(siblingFeature);
+                };
+
                 for (var f : features) {
                     if (!f.isRequired()) {
                         continue;
                     }
                     if (evaluator.isHiddenConditionalFeature(constraints, fs, f)) {
+                        continue;
+                    }
+                    if (!VisibleIfEvaluator.isVisible(f, featureValues)) {
                         continue;
                     }
 

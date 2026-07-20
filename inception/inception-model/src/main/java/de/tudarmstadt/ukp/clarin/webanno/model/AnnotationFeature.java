@@ -133,6 +133,9 @@ public class AnnotationFeature
     @Column(nullable = false)
     private int rank;
 
+    @Column(name = "visible_if", length = 64000)
+    private String visibleIf;
+
     public AnnotationFeature()
     {
         // Nothing to do
@@ -203,6 +206,7 @@ public class AnnotationFeature
         this.traits = builder.traits;
         this.curatable = builder.curatable;
         this.rank = builder.rank;
+        this.visibleIf = builder.visibleIf;
     }
 
     public Long getId()
@@ -571,6 +575,22 @@ public class AnnotationFeature
         rank = aRank;
     }
 
+    /**
+     * @return an optional boolean expression referencing other feature values on the same
+     *         annotation (e.g. {@code entityType == "PERSON"}) that controls whether this feature
+     *         is shown in the annotation detail editor. {@code null} or blank means the feature is
+     *         always visible.
+     */
+    public String getVisibleIf()
+    {
+        return visibleIf;
+    }
+
+    public void setVisibleIf(String aVisibleIf)
+    {
+        visibleIf = aVisibleIf;
+    }
+
     @Override
     public String toString()
     {
@@ -667,6 +687,7 @@ public class AnnotationFeature
         private String traits;
         private boolean curatable = true;
         private int rank = 0;
+        private String visibleIf;
 
         private Builder()
         {
@@ -823,6 +844,12 @@ public class AnnotationFeature
         public Builder withRank(int aRank)
         {
             this.rank = aRank;
+            return this;
+        }
+
+        public Builder withVisibleIf(String aVisibleIf)
+        {
+            this.visibleIf = aVisibleIf;
             return this;
         }
 

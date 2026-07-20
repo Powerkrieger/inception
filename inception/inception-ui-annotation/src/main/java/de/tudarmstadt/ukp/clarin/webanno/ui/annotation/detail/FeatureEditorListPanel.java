@@ -20,13 +20,17 @@ package de.tudarmstadt.ukp.clarin.webanno.ui.annotation.detail;
 import static de.tudarmstadt.ukp.clarin.webanno.ui.annotation.detail.AnnotationDetailEditorPanel.handleException;
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visibleWhen;
 import static java.util.Optional.empty;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 import org.apache.wicket.Component;
 import org.apache.wicket.MetaDataKey;
@@ -48,6 +52,7 @@ import org.wicketstuff.event.annotation.OnEvent;
 import org.wicketstuff.kendo.ui.form.TextField;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfEvaluator;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.util.CachingReuseStrategy;
 import de.tudarmstadt.ukp.inception.annotation.feature.link.LinkFeatureEditor;
@@ -294,7 +299,13 @@ public class FeatureEditorListPanel
         {
             List<FeatureState> featureStates = getModelObject().getFeatureStates();
 
-            return new ModelIteratorAdapter<FeatureState>(featureStates)
+            // Features with a visibleIf expression that currently evaluates to false are left
+            // out of the item list entirely - their editor is not rendered at all (as opposed to
+            // being merely disabled), while their FeatureState (and thus any value already
+            // entered) remains untouched in the annotator state.
+            var visibleFeatureStates = filterVisibleFeatureStates(featureStates);
+
+            return new ModelIteratorAdapter<FeatureState>(visibleFeatureStates)
             {
                 @Override
                 protected IModel<FeatureState> model(FeatureState aObject)
@@ -305,6 +316,36 @@ public class FeatureEditorListPanel
         }
     }
 
+    /**
+     * Returns the subset of the given feature states whose {@code visibleIf} expression (if any)
+     * currently evaluates to {@code true}, evaluated against the values of the other feature states
+     * in the same list. Does not modify the input list or any {@link FeatureState} in it - a
+     * feature that is currently hidden keeps its value, it merely does not appear in the result.
+     */
+    static List<FeatureState> filterVisibleFeatureStates(List<FeatureState> aFeatureStates)
+    {
+        var featureValues = featureValueLookup(aFeatureStates);
+        return aFeatureStates.stream()
+                .filter(fs -> VisibleIfEvaluator.isVisible(fs.getFeature(), featureValues))
+                .toList();
+    }
+
+    /**
+     * Builds a lookup from feature name to its current (string-converted) value across all features
+     * of the annotation currently being edited, for evaluating {@code visibleIf} expressions. A
+     * feature that has no value, or that does not exist at all, resolves to {@code null}.
+     */
+    private static Function<String, String> featureValueLookup(List<FeatureState> aFeatureStates)
+    {
+        Map<String, String> values = new HashMap<>();
+        for (var featureState : aFeatureStates) {
+            var value = featureState.getValue();
+            values.put(featureState.getFeature().getName(),
+                    value != null ? String.valueOf(value) : null);
+        }
+        return values::get;
+    }
+
     private void actionFeatureUpdate(Component aComponent, AjaxRequestTarget aTarget)
         throws AnnotationException, IOException
     {
@@ -312,9 +353,10 @@ public class FeatureEditorListPanel
 
         var state = getModelObject();
 
-        if (state.getConstraints() != null) {
+        if (state.getConstraints() != null || layerHasVisibilityRules(state)) {
             // Make sure we update the feature editor panel because due to
-            // constraints the contents may have to be re-rendered
+            // constraints - or a visibleIf expression on one of the features - the contents may
+            // have to be re-rendered
             aTarget.add(featureEditorContainer);
         }
 
@@ -363,6 +405,12 @@ public class FeatureEditorListPanel
                 }
             }
         }
+    }
+
+    private boolean layerHasVisibilityRules(AnnotatorState aState)
+    {
+        return aState.getFeatureStates().stream()
+                .anyMatch(fs -> isNotBlank(fs.getFeature().getVisibleIf()));
     }
 
     public void autoFocus(AjaxRequestTarget aTarget, Component aComponent)

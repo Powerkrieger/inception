@@ -94,6 +94,9 @@ public class ExportedAnnotationFeature
     @JsonProperty("rank")
     private int rank = 0;
 
+    @JsonProperty("visible_if")
+    private String visibleIf;
+
     public String getName()
     {
         return name;
@@ -292,6 +295,16 @@ public class ExportedAnnotationFeature
     public void setRank(int aRank)
     {
         rank = aRank;
+    }
+
+    public String getVisibleIf()
+    {
+        return visibleIf;
+    }
+
+    public void setVisibleIf(String aVisibleIf)
+    {
+        visibleIf = aVisibleIf;
     }
 
     @Override

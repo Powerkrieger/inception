@@ -1432,4 +1432,17 @@
       <column name="state_updated" type="datetime(6)"/>
     </addColumn>
   </changeSet>
+
+  <changeSet author="INCEpTION Team" id="20260716-1">
+    <preConditions onFail="MARK_RAN">
+      <not>
+        <columnExists tableName="annotation_feature" columnName="visible_if"/>
+      </not>
+    </preConditions>
+    <addColumn tableName="annotation_feature">
+      <column name="visible_if" type="LONGTEXT">
+        <constraints nullable="true" />
+      </column>
+    </addColumn>
+  </changeSet>
 </databaseChangeLog>
