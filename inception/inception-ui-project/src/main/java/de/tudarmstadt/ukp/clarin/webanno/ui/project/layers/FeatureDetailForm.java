@@ -55,6 +55,8 @@ import org.apache.wicket.model.ResourceModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasStorageService;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfEvaluator;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfSyntaxException;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.inception.annotation.layer.chain.api.ChainLayerSupport;
@@ -73,6 +75,7 @@ import de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaButton;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaModelAdapter;
 import de.tudarmstadt.ukp.inception.support.spring.ApplicationEventPublisherHolder;
+import de.tudarmstadt.ukp.inception.support.wicket.DescriptionTooltipBehavior;
 
 public class FeatureDetailForm
     extends Form<AnnotationFeature>
@@ -113,6 +116,13 @@ public class FeatureDetailForm
         uiName.setOutputMarkupId(true);
         add(uiName);
         add(new TextArea<String>("description"));
+
+        var visibleIf = new TextField<String>("visibleIf");
+        visibleIf.setOutputMarkupId(true);
+        visibleIf.add(new DescriptionTooltipBehavior("Visible if",
+                "Optional expression controlling whether this feature is visible. Empty means "
+                        + "always visible. Use internal var name. Most commonly lowercase. Example: value == \"PERSON\""));
+        add(visibleIf);
 
         defaultOptionsContainer = new WebMarkupContainer("defaultOptionsContainer");
         defaultOptionsContainer.add(visibleWhen(this::isUsingDefaultOptions));
@@ -326,6 +336,14 @@ public class FeatureDetailForm
         aTarget.addChildren(getPage(), IFeedback.class);
 
         var feature = getModelObject();
+
+        try {
+            VisibleIfEvaluator.validate(feature.getVisibleIf());
+        }
+        catch (VisibleIfSyntaxException e) {
+            error("Invalid \"Visible if\" expression: " + e.getMessage());
+            return;
+        }
 
         if (isNull(feature.getId())) {
             feature.setName(feature.getUiName().replaceAll("\\W", ""));
