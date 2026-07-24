@@ -17,10 +17,13 @@
  */
 package de.tudarmstadt.ukp.inception.kb;
 
+import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY;
+
 import java.util.ArrayList;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.keybindings.KeyBinding;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.keybindings.KeyBindingTrait;
@@ -37,6 +40,7 @@ public class ConceptFeatureTraits
     private static final long serialVersionUID = 6303541487449965932L;
 
     private List<KeyBinding> keyBindings = new ArrayList<>();
+    private @JsonInclude(NON_EMPTY) String defaultValue;
 
     public ConceptFeatureTraits()
     {
@@ -58,5 +62,15 @@ public class ConceptFeatureTraits
         else {
             keyBindings = aKeyBindings;
         }
+    }
+
+    public String getDefaultValue()
+    {
+        return defaultValue;
+    }
+
+    public void setDefaultValue(String aDefaultValue)
+    {
+        defaultValue = aDefaultValue;
     }
 }

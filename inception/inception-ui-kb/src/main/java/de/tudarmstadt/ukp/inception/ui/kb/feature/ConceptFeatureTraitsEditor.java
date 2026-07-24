@@ -63,6 +63,7 @@ public class ConceptFeatureTraitsEditor
     private static final String MID_KNOWLEDGE_BASE = "knowledgeBase";
     private static final String MID_SCOPE = "scope";
     private static final String MID_ALLOWED_VALUE_TYPE = "allowedValueType";
+    private static final String MID_DEFAULT_VALUE = "defaultValue";
 
     private static final long serialVersionUID = 2129000875921279514L;
 
@@ -105,8 +106,9 @@ public class ConceptFeatureTraitsEditor
         add(form);
 
         var scope = new KnowledgeBaseItemAutoCompleteField(MID_SCOPE);
+        scope.setType(KBHandle.class);
         scope.setModel(LambdaModel.of(this::getScope, this::setScope));
-        scope.setChoiceProvider(_query -> listSearchResults(_query, CONCEPT));
+        scope.setChoiceProvider(_query -> listSearchResults(_query, CONCEPT, null));
         scope.setOutputMarkupPlaceholderTag(true);
         form.add(scope);
 
@@ -122,6 +124,14 @@ public class ConceptFeatureTraitsEditor
         form.add(new DropDownChoice<>(MID_ALLOWED_VALUE_TYPE,
                 LoadableDetachableModel.of(this::listAllowedTypes)).add(
                         new LambdaAjaxFormComponentUpdatingBehavior(CHANGE_EVENT, this::refresh)));
+
+        var defaultValue = new KnowledgeBaseItemAutoCompleteField(MID_DEFAULT_VALUE);
+        defaultValue.setType(KBHandle.class);
+        defaultValue.setModel(LambdaModel.of(this::getDefaultValue, this::setDefaultValue));
+        defaultValue.setChoiceProvider(_query -> listSearchResults(_query,
+                traits.getObject().getAllowedValueType(), traits.getObject().getScope()));
+        defaultValue.setOutputMarkupPlaceholderTag(true);
+        form.add(defaultValue);
 
         form.add(new DisabledKBWarning("disabledKBWarning", feature,
                 traits.map(ConceptFeatureTraits::getRepositoryId)));
@@ -153,6 +163,25 @@ public class ConceptFeatureTraitsEditor
 
     }
 
+    private KBHandle getDefaultValue()
+    {
+        if (!traits.isPresent().getObject()) {
+            return null;
+        }
+
+        var kb = getSelectedKnowledgeBase();
+        var defaultValue = traits.getObject().getDefaultValue();
+        return loadConcept(kb, defaultValue);
+    }
+
+    private void setDefaultValue(KBHandle aDefaultValue)
+    {
+        if (traits.isPresent().getObject()) {
+            traits.getObject()
+                    .setDefaultValue(aDefaultValue != null ? aDefaultValue.getIdentifier() : null);
+        }
+    }
+
     private KnowledgeBase getSelectedKnowledgeBase()
     {
         var project = getModelObject().getProject();
@@ -173,7 +202,9 @@ public class ConceptFeatureTraitsEditor
     private void refresh(AjaxRequestTarget aTarget)
     {
         setScope(getScope()); // Make sure the scope belongs to the selected KB
-        aTarget.add(get(MID_FORM).get(MID_SCOPE), get(MID_KEY_BINDINGS));
+        setDefaultValue(getDefaultValue()); // Ditto for the default value
+        aTarget.add(get(MID_FORM).get(MID_SCOPE), get(MID_FORM).get(MID_DEFAULT_VALUE),
+                get(MID_KEY_BINDINGS));
     }
 
     private KBHandle loadConcept(KnowledgeBase aKB, String aIdentifier)
@@ -215,7 +246,8 @@ public class ConceptFeatureTraitsEditor
      * Search for Entities in the current knowledge base based on a typed string. Use full text
      * search if it is available. Returns a sorted/ranked list of KBHandles
      */
-    private List<KBHandle> listSearchResults(String aTypedString, ConceptFeatureValueType aType)
+    private List<KBHandle> listSearchResults(String aTypedString, ConceptFeatureValueType aType,
+            String aScope)
     {
         if (isBlank(aTypedString)) {
             return emptyList();
@@ -223,7 +255,7 @@ public class ConceptFeatureTraitsEditor
 
         var kb = getSelectedKnowledgeBase();
         return conceptLinkingService.getLinkingInstancesInKBScope(
-                kb != null ? kb.getRepositoryId() : null, null, aType, aTypedString, null, -1, null,
-                feature.getObject().getProject());
+                kb != null ? kb.getRepositoryId() : null, aScope, aType, aTypedString, null, -1,
+                null, feature.getObject().getProject());
     }
 }
