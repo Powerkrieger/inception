@@ -54,10 +54,12 @@ import de.tudarmstadt.ukp.inception.rendering.editorstate.FeatureState;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.SuggestionState;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VLazyDetail;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VLazyDetailGroup;
+import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditor;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupport;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureType;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
+import de.tudarmstadt.ukp.inception.support.uima.ICasUtil;
 import de.tudarmstadt.ukp.inception.ui.kb.config.KnowledgeBaseServiceUIAutoConfiguration;
 
 /**
@@ -177,6 +179,17 @@ public class ConceptFeatureSupport
     public <V> V getNullFeatureValue(AnnotationFeature aFeature, FeatureStructure aFS)
     {
         return null;
+    }
+
+    @Override
+    public void initializeAnnotation(AnnotationFeature aFeature, FeatureStructure aFS)
+        throws AnnotationException
+    {
+        var traits = readTraits(aFeature);
+        if (isNotBlank(traits.getDefaultValue())) {
+            setFeatureValue(aFS.getCAS(), aFeature, ICasUtil.getAddr(aFS),
+                    traits.getDefaultValue());
+        }
     }
 
     public KBHandle getConceptHandle(AnnotationFeature aFeature, String aIdentifier,
