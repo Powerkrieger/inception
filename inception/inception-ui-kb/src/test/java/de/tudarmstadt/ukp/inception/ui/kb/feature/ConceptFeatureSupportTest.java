@@ -17,14 +17,23 @@
  */
 package de.tudarmstadt.ukp.inception.ui.kb.feature;
 
+import static org.apache.uima.cas.CAS.TYPE_NAME_ANNOTATION;
+import static org.apache.uima.cas.CAS.TYPE_NAME_STRING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
+import org.apache.uima.UIMAFramework;
+import org.apache.uima.cas.FeatureStructure;
+import org.apache.uima.fit.util.FSUtil;
+import org.apache.uima.util.CasCreationUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,9 +42,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
+import de.tudarmstadt.ukp.inception.kb.ConceptFeatureTraits;
+import de.tudarmstadt.ukp.inception.schema.api.feature.ConditionalDefaultValueRule;
 import de.tudarmstadt.ukp.inception.kb.KnowledgeBaseService;
 import de.tudarmstadt.ukp.inception.kb.config.KnowledgeBasePropertiesImpl;
 import de.tudarmstadt.ukp.inception.kb.graph.KBHandle;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.FeatureState;
+import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 
 @ExtendWith(MockitoExtension.class)
 public class ConceptFeatureSupportTest
@@ -89,5 +102,176 @@ public class ConceptFeatureSupportTest
         ;
         assertThatThrownBy(() -> sut.unwrapFeatureValue(feat1, new Object()))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // -- initializeAnnotation (creation-time defaults) -----------------------------------------
+
+    @Test
+    public void thatInitializeAnnotationAppliesPlainDefaultValueWhenNoRulesConfigured()
+        throws Exception
+    {
+        var fs = createFsWithFeatures("value");
+        var feature = new AnnotationFeature("value", ConceptFeatureSupport.PREFIX + "someConcept");
+
+        var traits = new ConceptFeatureTraits();
+        traits.setDefaultValue("cytoplasm");
+        sut.writeTraits(feature, traits);
+
+        sut.initializeAnnotation(feature, fs);
+
+        assertThat(FSUtil.getFeature(fs, "value", String.class)).isEqualTo("cytoplasm");
+    }
+
+    @Test
+    public void thatInitializeAnnotationFallsBackToPlainDefaultWhenSiblingNotYetSet()
+        throws Exception
+    {
+        var fs = createFsWithFeatures("entityType", "compartmentType");
+        var feature = new AnnotationFeature("compartmentType",
+                ConceptFeatureSupport.PREFIX + "someConcept");
+
+        var traits = new ConceptFeatureTraits();
+        traits.setDefaultValue("cytoplasm");
+        traits.setConditionalDefaultValues(
+                List.of(new ConditionalDefaultValueRule("entityType == \"Gene\"", "nucleus")));
+        sut.writeTraits(feature, traits);
+
+        // entityType is not set on the FS yet - e.g. because it is processed after
+        // compartmentType at creation time.
+        sut.initializeAnnotation(feature, fs);
+
+        assertThat(FSUtil.getFeature(fs, "compartmentType", String.class)).isEqualTo("cytoplasm");
+    }
+
+    @Test
+    public void thatInitializeAnnotationAppliesConditionalDefaultWhenSiblingAlreadySet()
+        throws Exception
+    {
+        var fs = createFsWithFeatures("entityType", "compartmentType");
+        FSUtil.setFeature(fs, "entityType", "Gene");
+
+        var feature = new AnnotationFeature("compartmentType",
+                ConceptFeatureSupport.PREFIX + "someConcept");
+
+        var traits = new ConceptFeatureTraits();
+        traits.setDefaultValue("cytoplasm");
+        traits.setConditionalDefaultValues(
+                List.of(new ConditionalDefaultValueRule("entityType == \"Gene\"", "nucleus")));
+        sut.writeTraits(feature, traits);
+
+        sut.initializeAnnotation(feature, fs);
+
+        assertThat(FSUtil.getFeature(fs, "compartmentType", String.class)).isEqualTo("nucleus");
+    }
+
+    private FeatureStructure createFsWithFeatures(String... aFeatureNames) throws Exception
+    {
+        var tsd = UIMAFramework.getResourceSpecifierFactory().createTypeSystemDescription();
+        var type = tsd.addType("test.Span", "", TYPE_NAME_ANNOTATION);
+        for (var featureName : aFeatureNames) {
+            type.addFeature(featureName, "", TYPE_NAME_STRING);
+        }
+
+        var cas = CasCreationUtils.createCas(tsd, null, null);
+        cas.setDocumentText("text");
+        var spanType = cas.getTypeSystem().getType("test.Span");
+        var fs = cas.createAnnotation(spanType, 0, 4);
+        cas.addFsToIndexes(fs);
+        return fs;
+    }
+
+    // -- onFeatureValueUpdated (update-time recompute) ------------------------------------------
+
+    private AnnotationFeature compartmentTypeFeatureWithRule()
+    {
+        var feature = new AnnotationFeature("compartmentType",
+                ConceptFeatureSupport.PREFIX + "someConcept");
+
+        var traits = new ConceptFeatureTraits();
+        traits.setDefaultValue("cytoplasm");
+        traits.setConditionalDefaultValues(
+                List.of(new ConditionalDefaultValueRule("entityType == \"Gene\"", "nucleus")));
+        sut.writeTraits(feature, traits);
+
+        return feature;
+    }
+
+    @Test
+    public void thatOnFeatureValueUpdatedAppliesConditionalDefaultWhenSiblingChangesToMatch()
+    {
+        var feature = compartmentTypeFeatureWithRule();
+        // Untouched: currently holds the plain fallback default (cytoplasm) that was applied at
+        // creation time, when entityType was not yet set.
+        var featureState = new FeatureState(VID.NONE_ID, feature, new KBHandle("cytoplasm"));
+
+        Function<String, String> previousValues = Map.<String, String> of()::get; // entityType was
+                                                                                  // unset
+        Function<String, String> currentValues = Map.of("entityType", "Gene")::get;
+
+        sut.onFeatureValueUpdated(featureState, currentValues, previousValues);
+
+        assertThat(sut.unwrapFeatureValue(feature, featureState.getValue())).isEqualTo("nucleus");
+    }
+
+    @Test
+    public void thatOnFeatureValueUpdatedRevertsToFallbackWhenSiblingNoLongerMatches()
+    {
+        var feature = compartmentTypeFeatureWithRule();
+        // Untouched: currently holds the value that was auto-applied while entityType was Gene.
+        var featureState = new FeatureState(VID.NONE_ID, feature, new KBHandle("nucleus"));
+
+        Function<String, String> previousValues = Map.of("entityType", "Gene")::get;
+        Function<String, String> currentValues = Map.of("entityType", "Protein")::get;
+
+        sut.onFeatureValueUpdated(featureState, currentValues, previousValues);
+
+        assertThat(sut.unwrapFeatureValue(feature, featureState.getValue())).isEqualTo("cytoplasm");
+    }
+
+    @Test
+    public void thatOnFeatureValueUpdatedDoesNotOverrideManuallySetValue()
+    {
+        var feature = compartmentTypeFeatureWithRule();
+        // Manually set to something that does not match what the default logic would have
+        // produced for the previous entityType value (nucleus).
+        var featureState = new FeatureState(VID.NONE_ID, feature, new KBHandle("membrane"));
+
+        Function<String, String> previousValues = Map.of("entityType", "Gene")::get;
+        Function<String, String> currentValues = Map.of("entityType", "Protein")::get;
+
+        sut.onFeatureValueUpdated(featureState, currentValues, previousValues);
+
+        assertThat(sut.unwrapFeatureValue(feature, featureState.getValue())).isEqualTo("membrane");
+    }
+
+    @Test
+    public void thatOnFeatureValueUpdatedDoesNothingWhenNoRulesConfigured()
+    {
+        var feature = new AnnotationFeature("compartmentType",
+                ConceptFeatureSupport.PREFIX + "someConcept");
+        sut.writeTraits(feature, new ConceptFeatureTraits());
+
+        var featureState = new FeatureState(VID.NONE_ID, feature, new KBHandle("cytoplasm"));
+
+        Function<String, String> previousValues = Map.<String, String> of()::get;
+        Function<String, String> currentValues = Map.of("entityType", "Gene")::get;
+
+        sut.onFeatureValueUpdated(featureState, currentValues, previousValues);
+
+        assertThat(sut.unwrapFeatureValue(feature, featureState.getValue())).isEqualTo("cytoplasm");
+    }
+
+    @Test
+    public void thatOnFeatureValueUpdatedDoesNothingWhenWatchedFeatureDidNotChange()
+    {
+        var feature = compartmentTypeFeatureWithRule();
+        var featureState = new FeatureState(VID.NONE_ID, feature, new KBHandle("membrane"));
+
+        Function<String, String> previousValues = Map.of("entityType", "Gene")::get;
+        Function<String, String> currentValues = Map.of("entityType", "Gene")::get;
+
+        sut.onFeatureValueUpdated(featureState, currentValues, previousValues);
+
+        assertThat(sut.unwrapFeatureValue(feature, featureState.getValue())).isEqualTo("membrane");
     }
 }
