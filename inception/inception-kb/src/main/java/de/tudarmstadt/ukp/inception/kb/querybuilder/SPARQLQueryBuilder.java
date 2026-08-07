@@ -616,6 +616,11 @@ public class SPARQLQueryBuilder
         return VAR_DEPRECATION;
     }
 
+    private Projectable getTagProjection()
+    {
+        return VAR_TAG;
+    }
+
     boolean noResult()
     {
         return returnEmptyResult = true;
@@ -1453,6 +1458,24 @@ public class SPARQLQueryBuilder
         return this;
     }
 
+    @Override
+    public SPARQLQueryOptionalElements retrieveTag()
+    {
+        // The tag property is optional and most knowledge bases do not configure one. Adding the
+        // OPTIONAL clause regardless would make every query pay for a lookup that can never match,
+        // which is not free on a large local repository.
+        if (!kb.supportsTag()) {
+            return this;
+        }
+
+        // Retain only the first tag
+        projections.add(getTagProjection());
+
+        retrieveOptionalWithLanguage(iri(kb.getTagIri()), VAR_TAG);
+
+        return this;
+    }
+
     private void retrieveOptionalWithLanguage(RdfPredicate aProperty, Variable aVariable)
     {
         var triple = VAR_SUBJECT.has(aProperty, aVariable);
@@ -1730,6 +1753,7 @@ public class SPARQLQueryBuilder
                 extractDomain(handle, bindings);
                 extractScore(handle, bindings);
                 extractDeprecation(handle, bindings);
+                extractTag(handle, bindings);
 
                 handles.add(handle);
             }
@@ -1888,6 +1912,14 @@ public class SPARQLQueryBuilder
             aTargetHandle.setDescription(descriptionBinding.getValue().stringValue());
             aDescriptionLanguages.put(aTargetHandle,
                     extractLanguage(descriptionBinding).orElse(null));
+        }
+    }
+
+    private void extractTag(KBHandle aTargetHandle, BindingSet aSourceBindings)
+    {
+        var tag = aSourceBindings.getBinding(VAR_TAG_NAME);
+        if (tag != null) {
+            aTargetHandle.setTag(tag.getValue().stringValue());
         }
     }
 

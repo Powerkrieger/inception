@@ -122,6 +122,7 @@ public class KnowledgeBaseExporter
             exportedKB.setPropertyLabelIri(kb.getPropertyLabelIri());
             exportedKB.setPropertyDescriptionIri(kb.getPropertyDescriptionIri());
             exportedKB.setDeprecationPropertyIri(kb.getDeprecationPropertyIri());
+            exportedKB.setTagIri(kb.getTagIri());
             exportedKB.setFullTextSearchIri(kb.getFullTextSearchIri());
             exportedKB.setReadOnly(kb.isReadOnly());
             exportedKB.setUseFuzzy(kb.isUseFuzzy());
@@ -198,6 +199,9 @@ public class KnowledgeBaseExporter
             kb.setLabelIri(exportedKB.getLabelIri() != null //
                     ? exportedKB.getLabelIri() //
                     : DEFAULTPROFILE.getLabelIri());
+            // No profile fallback - the tag property is optional and no profile defines one, so a
+            // project exported before this setting existed simply comes back without a tag.
+            kb.setTagIri(exportedKB.getTagIri());
             kb.setPropertyTypeIri(exportedKB.getPropertyTypeIri() != null //
                     ? exportedKB.getPropertyTypeIri() //
                     : DEFAULTPROFILE.getPropertyTypeIri());

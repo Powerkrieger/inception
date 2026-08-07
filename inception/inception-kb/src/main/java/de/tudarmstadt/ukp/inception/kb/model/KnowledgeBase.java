@@ -120,6 +120,14 @@ public class KnowledgeBase
     private String descriptionIri;
 
     /**
+     * The IRI for a property carrying a short tag for A, rendered as a badge next to the label in
+     * the annotation candidate list, e.g. an organism name in a knowledge base spanning several
+     * organisms. If this field is null, no tag is retrieved and no badge is shown.
+     */
+    @Column(nullable = true)
+    private String tagIri;
+
+    /**
      * The IRI used for full text search, e.g. {@code bif:contains} or
      * {@code http://www.openrdf.org/contrib/lucenesail#}. If this field is null, then FTS is not
      * supported.
@@ -327,6 +335,25 @@ public class KnowledgeBase
     public void setDescriptionIri(String aDescriptionIri)
     {
         descriptionIri = aDescriptionIri;
+    }
+
+    public String getTagIri()
+    {
+        return tagIri;
+    }
+
+    public void setTagIri(String aTagIri)
+    {
+        tagIri = aTagIri;
+    }
+
+    /**
+     * @return whether a tag property has been configured, i.e. whether tags should be retrieved and
+     *         rendered at all.
+     */
+    public boolean supportsTag()
+    {
+        return !isEmpty(tagIri);
     }
 
     public String getLabelIri()

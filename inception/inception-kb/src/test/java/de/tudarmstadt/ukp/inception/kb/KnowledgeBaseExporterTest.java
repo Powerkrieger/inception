@@ -202,6 +202,9 @@ public class KnowledgeBaseExporterTest
         var kb2 = buildKnowledgeBase("kb2");
         kb2.setType(RepositoryType.REMOTE);
         kb2.setClassIri(OWL.CLASS.stringValue());
+        // Set on one KB only, so the round-trip is covered both for a configured tag property and
+        // for the far more common case of none being configured at all.
+        kb2.setTagIri(RDFS.COMMENT.stringValue());
 
         var kb3 = buildKnowledgeBase("kb3");
         kb3.setType(RepositoryType.REMOTE);

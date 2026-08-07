@@ -43,6 +43,7 @@ public class KBHandle
     private String queryBestMatchTerm;
     private Set<Pair<String, String>> matchTerms;
     private String description;
+    private String tag;
     private KnowledgeBase kb;
     private String language;
     private boolean deprecated;
@@ -182,6 +183,20 @@ public class KBHandle
     public void setDescription(String aDescription)
     {
         description = aDescription;
+    }
+
+    /**
+     * @return the short tag for this item, or {@code null} if the knowledge base has no tag
+     *         property configured or this item carries no value for it.
+     */
+    public String getTag()
+    {
+        return tag;
+    }
+
+    public void setTag(String aTag)
+    {
+        tag = aTag;
     }
 
     @Override
