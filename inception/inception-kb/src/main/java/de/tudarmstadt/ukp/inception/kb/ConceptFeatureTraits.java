@@ -27,6 +27,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.keybindings.KeyBinding;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.keybindings.KeyBindingTrait;
+import de.tudarmstadt.ukp.inception.schema.api.feature.ConditionalDefaultValueRule;
 import de.tudarmstadt.ukp.inception.schema.api.feature.RecommendableFeatureTrait;
 
 /**
@@ -41,6 +42,7 @@ public class ConceptFeatureTraits
 
     private List<KeyBinding> keyBindings = new ArrayList<>();
     private @JsonInclude(NON_EMPTY) String defaultValue;
+    private List<ConditionalDefaultValueRule> conditionalDefaultValues = new ArrayList<>();
 
     public ConceptFeatureTraits()
     {
@@ -72,5 +74,24 @@ public class ConceptFeatureTraits
     public void setDefaultValue(String aDefaultValue)
     {
         defaultValue = aDefaultValue;
+    }
+
+    /**
+     * Rules evaluated in order before falling back to {@link #getDefaultValue()}; the first rule
+     * whose condition matches wins.
+     */
+    public List<ConditionalDefaultValueRule> getConditionalDefaultValues()
+    {
+        return conditionalDefaultValues;
+    }
+
+    public void setConditionalDefaultValues(List<ConditionalDefaultValueRule> aRules)
+    {
+        if (aRules == null) {
+            conditionalDefaultValues = new ArrayList<>();
+        }
+        else {
+            conditionalDefaultValues = aRules;
+        }
     }
 }

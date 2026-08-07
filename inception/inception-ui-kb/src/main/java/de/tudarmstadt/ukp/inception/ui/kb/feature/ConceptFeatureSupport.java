@@ -27,7 +27,9 @@ import static org.apache.uima.cas.CAS.TYPE_NAME_FS_ARRAY;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 import org.apache.uima.cas.AnnotationBaseFS;
 import org.apache.uima.cas.CAS;
@@ -55,6 +57,7 @@ import de.tudarmstadt.ukp.inception.rendering.editorstate.SuggestionState;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VLazyDetail;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VLazyDetailGroup;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
+import de.tudarmstadt.ukp.inception.schema.api.feature.ConditionalDefaultValueEvaluator;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditor;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupport;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureType;
@@ -186,10 +189,48 @@ public class ConceptFeatureSupport
         throws AnnotationException
     {
         var traits = readTraits(aFeature);
-        if (isNotBlank(traits.getDefaultValue())) {
-            setFeatureValue(aFS.getCAS(), aFeature, ICasUtil.getAddr(aFS),
-                    traits.getDefaultValue());
+        var defaultValue = ConditionalDefaultValueEvaluator.computeDefaultValue(
+                traits.getDefaultValue(), traits.getConditionalDefaultValues(),
+                name -> readSiblingValue(aFS, name));
+        if (isNotBlank(defaultValue)) {
+            setFeatureValue(aFS.getCAS(), aFeature, ICasUtil.getAddr(aFS), defaultValue);
         }
+    }
+
+    @Override
+    public void onFeatureValueUpdated(FeatureState aFeatureState,
+            Function<String, String> aCurrentValues, Function<String, String> aPreviousValues)
+    {
+        var feature = aFeatureState.getFeature();
+        var traits = readTraits(feature);
+        if (traits.getConditionalDefaultValues().isEmpty()) {
+            return;
+        }
+
+        var oldDefault = ConditionalDefaultValueEvaluator.computeDefaultValue(
+                traits.getDefaultValue(), traits.getConditionalDefaultValues(), aPreviousValues);
+        var newDefault = ConditionalDefaultValueEvaluator.computeDefaultValue(
+                traits.getDefaultValue(), traits.getConditionalDefaultValues(), aCurrentValues);
+        if (Objects.equals(oldDefault, newDefault)) {
+            // None of the features this feature's default depends on actually changed value.
+            return;
+        }
+
+        var currentValue = unwrapFeatureValue(feature, aFeatureState.getValue());
+        if (!Objects.equals(currentValue, oldDefault)) {
+            // The current value does not match what the default logic would previously have
+            // produced, so the annotator must have set it manually - never overwrite it.
+            return;
+        }
+
+        aFeatureState.setValue(
+                isNotBlank(newDefault) ? getConceptHandle(feature, newDefault, traits) : null);
+    }
+
+    private static String readSiblingValue(FeatureStructure aFS, String aFeatureName)
+    {
+        var feature = aFS.getType().getFeatureByBaseName(aFeatureName);
+        return feature == null ? null : aFS.getFeatureValueAsString(feature);
     }
 
     public KBHandle getConceptHandle(AnnotationFeature aFeature, String aIdentifier,

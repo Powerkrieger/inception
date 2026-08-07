@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 import org.apache.uima.cas.AnnotationBaseFS;
 import org.apache.uima.cas.CAS;
@@ -430,6 +431,29 @@ public interface FeatureSupport<T>
 
     default void initializeAnnotation(AnnotationFeature aFeature, FeatureStructure aFS)
         throws AnnotationException
+    {
+        // Nothing by default
+    }
+
+    /**
+     * Called for every feature of an annotation whenever any feature editor value of that
+     * annotation changes, before the new values are committed to the CAS. A feature support may use
+     * this to update its own feature's value in {@code aFeatureState}, e.g. to recompute a default
+     * value which depends on the value of another feature of the same annotation. It must not touch
+     * the state of any other feature.
+     *
+     * @param aFeatureState
+     *            the (already updated) state of the feature owning this feature support.
+     * @param aCurrentValues
+     *            resolves the current, in-memory (not yet committed to the CAS) value of any
+     *            feature of the same annotation by feature name; {@code null} for a missing/unset
+     *            feature.
+     * @param aPreviousValues
+     *            resolves the value any feature of the same annotation had before this update, by
+     *            feature name; {@code null} for a missing/unset feature.
+     */
+    default void onFeatureValueUpdated(FeatureState aFeatureState,
+            Function<String, String> aCurrentValues, Function<String, String> aPreviousValues)
     {
         // Nothing by default
     }

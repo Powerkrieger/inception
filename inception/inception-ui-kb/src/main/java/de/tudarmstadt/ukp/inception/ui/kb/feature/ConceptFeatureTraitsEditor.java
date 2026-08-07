@@ -37,6 +37,7 @@ import org.apache.wicket.model.LambdaModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.defaults.ConditionalDefaultValuesConfigurationPanel;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.keybindings.KeyBindingsConfigurationPanel;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.inception.conceptlinking.service.ConceptLinkingService;
@@ -64,6 +65,7 @@ public class ConceptFeatureTraitsEditor
     private static final String MID_SCOPE = "scope";
     private static final String MID_ALLOWED_VALUE_TYPE = "allowedValueType";
     private static final String MID_DEFAULT_VALUE = "defaultValue";
+    private static final String MID_CONDITIONAL_DEFAULT_VALUES = "conditionalDefaultValues";
 
     private static final long serialVersionUID = 2129000875921279514L;
 
@@ -142,6 +144,9 @@ public class ConceptFeatureTraitsEditor
         add(new KeyBindingsConfigurationPanel(MID_KEY_BINDINGS, aFeatureModel,
                 traits.bind(MID_KEY_BINDINGS)).setOutputMarkupId(true));
 
+        add(new ConditionalDefaultValuesConfigurationPanel(MID_CONDITIONAL_DEFAULT_VALUES,
+                aFeatureModel, traits.bind(MID_CONDITIONAL_DEFAULT_VALUES))
+                        .setOutputMarkupId(true));
     }
 
     private KBHandle getScope()
@@ -204,7 +209,7 @@ public class ConceptFeatureTraitsEditor
         setScope(getScope()); // Make sure the scope belongs to the selected KB
         setDefaultValue(getDefaultValue()); // Ditto for the default value
         aTarget.add(get(MID_FORM).get(MID_SCOPE), get(MID_FORM).get(MID_DEFAULT_VALUE),
-                get(MID_KEY_BINDINGS));
+                get(MID_KEY_BINDINGS), get(MID_CONDITIONAL_DEFAULT_VALUES));
     }
 
     private KBHandle loadConcept(KnowledgeBase aKB, String aIdentifier)

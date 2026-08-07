@@ -32,6 +32,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 
+import org.apache.uima.cas.CAS;
+import org.apache.uima.cas.FeatureStructure;
 import org.apache.wicket.Component;
 import org.apache.wicket.MetaDataKey;
 import org.apache.wicket.ajax.AjaxRequestTarget;
@@ -64,6 +66,7 @@ import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditor;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditorValueChangedEvent;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupport;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupportRegistry;
+import de.tudarmstadt.ukp.inception.support.uima.ICasUtil;
 import de.tudarmstadt.ukp.inception.support.wicket.DescriptionTooltipBehavior;
 
 public class FeatureEditorListPanel
@@ -336,10 +339,9 @@ public class FeatureEditorListPanel
      * Builds a lookup from feature name to the current, CAS-storable string representation of that
      * feature's value across all features of the annotation currently being edited - e.g. the KB
      * identifier rather than the display label for a Concept feature, via
-     * {@link FeatureSupport#unwrapFeatureValue}. Plain {@link String#valueOf} would instead yield
-     * the editor value's {@code toString()} (for a Concept feature, the whole {@code KBHandle[...]}
-     * debug string), which no {@code visibleIf} expression could ever match. A feature that has no
-     * value, that does not exist, or for which no {@link FeatureSupport} is registered resolves to
+     * {@link FeatureSupport#unwrapFeatureValue}. Used both to evaluate {@code visibleIf}
+     * expressions and to evaluate conditional default value rules. A feature that has no value,
+     * that does not exist, or for which no {@link FeatureSupport} is registered resolves to
      * {@code null} or a plain {@link String#valueOf}, respectively.
      */
     static Function<String, String> featureValueLookup(List<FeatureState> aFeatureStates,
@@ -377,7 +379,13 @@ public class FeatureEditorListPanel
 
         var state = getModelObject();
 
-        if (state.getConstraints() != null || layerHasVisibilityRules(state)) {
+        var editorPanel = findParent(AnnotationDetailEditorPanel.class);
+        var cas = editorPanel.getEditorCas();
+
+        var dependentDefaultsChanged = recomputeDependentDefaultValues(state, cas);
+
+        if (dependentDefaultsChanged || state.getConstraints() != null
+                || layerHasVisibilityRules(state)) {
             // Make sure we update the feature editor panel because due to
             // constraints - or a visibleIf expression on one of the features - the contents may
             // have to be re-rendered
@@ -387,9 +395,6 @@ public class FeatureEditorListPanel
         // When updating an annotation in the sidebar, we must not force a
         // re-focus after rendering
         getRequestCycle().setMetaData(IsSidebarAction.INSTANCE, true);
-
-        var editorPanel = findParent(AnnotationDetailEditorPanel.class);
-        var cas = editorPanel.getEditorCas();
 
         var adapter = annotationService.getAdapter(state.getSelectedAnnotationLayer());
         editorPanel.commitFeatureStates(aTarget, state.getDocument(), state.getUser().getUsername(),
@@ -435,6 +440,52 @@ public class FeatureEditorListPanel
     {
         return aState.getFeatureStates().stream()
                 .anyMatch(fs -> isNotBlank(fs.getFeature().getVisibleIf()));
+    }
+
+    /**
+     * Gives every feature of the currently selected annotation a chance to recompute its own value
+     * in reaction to another feature's value having just changed (e.g. a default value which
+     * depends on a sibling feature), by calling {@link FeatureSupport#onFeatureValueUpdated}. Must
+     * run before the new values are committed to the CAS, since it needs to read the *previous*
+     * values of features directly off the CAS (the in-memory {@link FeatureState}s have already
+     * been updated by Wicket's form processing at this point).
+     *
+     * @return whether any feature's value was actually changed as a result.
+     */
+    private boolean recomputeDependentDefaultValues(AnnotatorState aState, CAS aCas)
+    {
+        var annotationAddr = aState.getSelection().getAnnotation().getId();
+        var fs = ICasUtil.selectFsByAddr(aCas, annotationAddr);
+        var previousValues = previousFeatureValueLookup(fs);
+        var currentValues = featureValueLookup(aState.getFeatureStates(), featureSupportRegistry);
+
+        var changed = false;
+        for (var featureState : aState.getFeatureStates()) {
+            var support = featureSupportRegistry.findExtension(featureState.getFeature())
+                    .orElse(null);
+            if (support == null) {
+                continue;
+            }
+
+            var valueBefore = featureState.getValue();
+            support.onFeatureValueUpdated(featureState, currentValues, previousValues);
+            if (!Objects.equals(valueBefore, featureState.getValue())) {
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    /**
+     * Builds a lookup from feature name to the value that feature had in the CAS before the current
+     * update (the CAS is only updated afterwards, in {@code commitFeatureStates}).
+     */
+    private static Function<String, String> previousFeatureValueLookup(FeatureStructure aFS)
+    {
+        return name -> {
+            var feature = aFS.getType().getFeatureByBaseName(name);
+            return feature == null ? null : aFS.getFeatureValueAsString(feature);
+        };
     }
 
     public void autoFocus(AjaxRequestTarget aTarget, Component aComponent)
