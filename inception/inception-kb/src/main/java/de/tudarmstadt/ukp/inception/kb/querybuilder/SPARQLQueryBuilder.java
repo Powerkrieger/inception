@@ -1468,7 +1468,9 @@ public class SPARQLQueryBuilder
             return this;
         }
 
-        // Retain only the first tag
+        // An item is expected to carry at most one tag. If it carries several, the OPTIONAL yields
+        // one row per value and reduceRedundantResults() keeps whichever row wins on label and
+        // description language - so the surviving tag is incidental rather than chosen.
         projections.add(getTagProjection());
 
         retrieveOptionalWithLanguage(iri(kb.getTagIri()), VAR_TAG);
