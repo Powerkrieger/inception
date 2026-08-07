@@ -15,23 +15,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package de.tudarmstadt.ukp.clarin.webanno.constraints.visibility;
+package de.tudarmstadt.ukp.clarin.webanno.constraints.expression;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
 
 /**
- * Parsed abstract syntax tree for a {@code visibleIf} feature-visibility expression. An expression
- * is evaluated against a lookup function that resolves the current value of any feature on the same
- * annotation by name; a feature that is missing or has no value resolves to {@code null}.
+ * Parsed abstract syntax tree for a feature expression - a boolean condition over the values of the
+ * features of a single annotation. An expression is evaluated against a lookup function that
+ * resolves the current value of any feature on the same annotation by name; a feature that is
+ * missing or has no value resolves to {@code null}.
+ * <p>
+ * The language is not tied to any particular use: it backs both feature visibility
+ * ({@code visibleIf}) and conditional default value rules.
  */
-public sealed interface VisibleIfExpression
+public sealed interface FeatureExpression
 {
     boolean evaluate(Function<String, String> aFeatureValues);
 
-    record And(VisibleIfExpression left, VisibleIfExpression right)
-        implements VisibleIfExpression
+    record And(FeatureExpression left, FeatureExpression right)
+        implements FeatureExpression
     {
         @Override
         public boolean evaluate(Function<String, String> aFeatureValues)
@@ -40,8 +44,8 @@ public sealed interface VisibleIfExpression
         }
     }
 
-    record Or(VisibleIfExpression left, VisibleIfExpression right)
-        implements VisibleIfExpression
+    record Or(FeatureExpression left, FeatureExpression right)
+        implements FeatureExpression
     {
         @Override
         public boolean evaluate(Function<String, String> aFeatureValues)
@@ -50,8 +54,8 @@ public sealed interface VisibleIfExpression
         }
     }
 
-    record Not(VisibleIfExpression inner)
-        implements VisibleIfExpression
+    record Not(FeatureExpression inner)
+        implements FeatureExpression
     {
         @Override
         public boolean evaluate(Function<String, String> aFeatureValues)
@@ -61,7 +65,7 @@ public sealed interface VisibleIfExpression
     }
 
     record Equals(String featureName, String value)
-        implements VisibleIfExpression
+        implements FeatureExpression
     {
         @Override
         public boolean evaluate(Function<String, String> aFeatureValues)
@@ -74,7 +78,7 @@ public sealed interface VisibleIfExpression
      * {@code feature in ["A", "B"]}. A missing/{@code null} feature value never matches.
      */
     record In(String featureName, List<String> values)
-        implements VisibleIfExpression
+        implements FeatureExpression
     {
         @Override
         public boolean evaluate(Function<String, String> aFeatureValues)

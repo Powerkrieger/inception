@@ -25,6 +25,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpressionSyntaxException;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 
 class VisibleIfEvaluatorTest
@@ -69,7 +70,7 @@ class VisibleIfEvaluatorTest
     @Test
     void thatValidateThrowsForInvalidExpressions()
     {
-        assertThatExceptionOfType(VisibleIfSyntaxException.class)
+        assertThatExceptionOfType(FeatureExpressionSyntaxException.class)
                 .isThrownBy(() -> VisibleIfEvaluator.validate("entityType ="));
     }
 }

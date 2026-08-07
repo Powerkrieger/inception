@@ -17,35 +17,25 @@
  */
 package de.tudarmstadt.ukp.clarin.webanno.constraints.visibility;
 
-import static org.apache.commons.lang3.StringUtils.isBlank;
-
-import java.lang.invoke.MethodHandles;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpressionEvaluator;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpressionSyntaxException;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 
 /**
- * Evaluates {@link AnnotationFeature#getVisibleIf()} expressions.
+ * Applies the shared {@link FeatureExpressionEvaluator} to the one thing it is used for here:
+ * deciding whether a feature editor is shown, based on {@link AnnotationFeature#getVisibleIf()}.
  * <p>
- * Parsed expressions are cached by their source text (parsing is comparatively expensive and the
- * same expression is evaluated repeatedly, e.g. once per feature editor per AJAX refresh). An
- * expression which fails to parse is treated as "always visible" - a configuration mistake in a
- * {@code visibleIf} expression must never hide a feature editor or crash the UI. Each distinct
- * invalid expression is logged as a warning only once.
+ * This exists to pin down the failure policy for the visibility use case: an expression which is
+ * blank, fails to parse or fails to evaluate is treated as <b>visible</b>. A configuration mistake
+ * in a {@code visibleIf} expression must never hide a feature editor or crash the UI. Other users
+ * of the expression language need the opposite fallback and must therefore not route through here.
  */
 public final class VisibleIfEvaluator
 {
-    private static final Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
-
-    private static final ConcurrentHashMap<String, Optional<VisibleIfExpression>> CACHE = //
-            new ConcurrentHashMap<>();
-    private static final Set<String> ALREADY_WARNED = ConcurrentHashMap.newKeySet();
+    /** A broken or missing visibility expression must never hide a feature editor. */
+    private static final boolean FALLBACK_VISIBLE = true;
 
     private VisibleIfEvaluator()
     {
@@ -69,54 +59,21 @@ public final class VisibleIfEvaluator
     public static boolean isVisible(String aVisibleIfExpression,
             Function<String, String> aFeatureValues)
     {
-        if (isBlank(aVisibleIfExpression)) {
-            return true;
-        }
-
-        var parsed = CACHE.computeIfAbsent(aVisibleIfExpression, VisibleIfEvaluator::tryParse);
-
-        if (parsed.isEmpty()) {
-            return true;
-        }
-
-        try {
-            return parsed.get().evaluate(aFeatureValues);
-        }
-        catch (Exception e) {
-            // Defensive: a lookup function misbehaving must not break the annotation editor
-            LOG.warn("Error evaluating visibleIf expression [{}]: {} - treating feature as "
-                    + "always visible", aVisibleIfExpression, e.getMessage());
-            return true;
-        }
+        return FeatureExpressionEvaluator.evaluate(aVisibleIfExpression, aFeatureValues,
+                FALLBACK_VISIBLE);
     }
 
     /**
      * Validates the syntax of a {@code visibleIf} expression, e.g. when it is entered in the
      * layer/feature configuration UI.
      *
-     * @throws VisibleIfSyntaxException
+     * @param aVisibleIfExpression
+     *            the expression to validate; a blank expression is considered valid.
+     * @throws FeatureExpressionSyntaxException
      *             if the expression is not valid.
      */
-    public static void validate(String aVisibleIfExpression) throws VisibleIfSyntaxException
+    public static void validate(String aVisibleIfExpression) throws FeatureExpressionSyntaxException
     {
-        if (isBlank(aVisibleIfExpression)) {
-            return;
-        }
-
-        VisibleIfExpressionParser.parse(aVisibleIfExpression);
-    }
-
-    private static Optional<VisibleIfExpression> tryParse(String aExpression)
-    {
-        try {
-            return Optional.of(VisibleIfExpressionParser.parse(aExpression));
-        }
-        catch (VisibleIfSyntaxException e) {
-            if (ALREADY_WARNED.add(aExpression)) {
-                LOG.warn("Invalid visibleIf expression [{}]: {} - treating feature as always "
-                        + "visible", aExpression, e.getMessage());
-            }
-            return Optional.empty();
-        }
+        FeatureExpressionEvaluator.validate(aVisibleIfExpression);
     }
 }
