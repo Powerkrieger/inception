@@ -63,6 +63,9 @@ public class ExportedKnowledgeBase
     @JsonProperty("deprecation_property_iri")
     private String deprecationPropertyIri;
 
+    @JsonProperty("tag_iri")
+    private String tagIri;
+
     @JsonProperty("full_text_search_iri")
     private String fullTextSearchIri;
 
@@ -186,6 +189,16 @@ public class ExportedKnowledgeBase
     public void setDescriptionIri(String aDescriptionIri)
     {
         descriptionIri = aDescriptionIri;
+    }
+
+    public String getTagIri()
+    {
+        return tagIri;
+    }
+
+    public void setTagIri(String aTagIri)
+    {
+        tagIri = aTagIri;
     }
 
     public String getLabelIri()

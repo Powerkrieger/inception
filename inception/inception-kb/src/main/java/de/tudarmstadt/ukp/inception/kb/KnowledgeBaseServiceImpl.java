@@ -1003,6 +1003,7 @@ public class KnowledgeBaseServiceImpl
                     .excludeInferred() //
                     .retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation();
 
             Optional<KBHandle> result;
@@ -1058,6 +1059,7 @@ public class KnowledgeBaseServiceImpl
             preResolveLabelProperties(aKB, query, false);
             query.retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation() //
                     .excludeInferred();
 
@@ -1096,6 +1098,7 @@ public class KnowledgeBaseServiceImpl
             preResolveLabelProperties(aKB, query, true);
             query.withIdentifier(aIdentifier) //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveLabel() //
                     .retrieveDeprecation().retrieveDomainAndRange() //
                     .excludeInferred();
@@ -1147,6 +1150,7 @@ public class KnowledgeBaseServiceImpl
             preResolveLabelProperties(aKB, query, true);
             query.retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation() //
                     .retrieveDomainAndRange() //
                     .includeInferred(aIncludeInferred);
@@ -1187,6 +1191,7 @@ public class KnowledgeBaseServiceImpl
             preResolveLabelProperties(aKB, query, false);
             query.withIdentifier(aIdentifier) //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveLabel() //
                     .retrieveDeprecation().excludeInferred();
 
@@ -1243,6 +1248,7 @@ public class KnowledgeBaseServiceImpl
             query.childrenOf(aConceptIri) //
                     .retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation();
 
             List<KBHandle> result;
@@ -1376,6 +1382,7 @@ public class KnowledgeBaseServiceImpl
             query.matchingDomain(aDomain) //
                     .retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation() //
                     .retrieveDomainAndRange() //
                     .includeInferred(aIncludeInferred);
@@ -1402,6 +1409,7 @@ public class KnowledgeBaseServiceImpl
             preResolveLabelProperties(aKB, query, false);
             query.roots().retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation();
 
             List<KBHandle> result;
@@ -1443,6 +1451,7 @@ public class KnowledgeBaseServiceImpl
             query.parentsOf(aIdentifier) //
                     .retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation();
 
             List<KBHandle> result;
@@ -1467,6 +1476,7 @@ public class KnowledgeBaseServiceImpl
             query.ancestorsOf(aIdentifier) //
                     .retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation();
 
             List<KBHandle> result;
@@ -1492,6 +1502,7 @@ public class KnowledgeBaseServiceImpl
             query.childrenOf(aParentIdentifier) //
                     .retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation() //
                     .limit(aLimit);
 
@@ -1612,6 +1623,7 @@ public class KnowledgeBaseServiceImpl
             query.withIdentifier(aIdentifier) //
                     .retrieveLabel() //
                     .retrieveDescription() //
+                    .retrieveTag() //
                     .retrieveDeprecation();
 
             Optional<KBHandle> result;
@@ -1694,6 +1706,7 @@ public class KnowledgeBaseServiceImpl
         query.withIdentifier(aIds.toArray(String[]::new)) //
                 .retrieveLabel() //
                 .retrieveDescription() //
+                .retrieveTag() //
                 .retrieveDeprecation() //
                 .noLimit();
 

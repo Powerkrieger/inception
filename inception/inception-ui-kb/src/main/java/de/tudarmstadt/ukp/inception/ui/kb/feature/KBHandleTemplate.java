@@ -44,6 +44,13 @@ final class KBHandleTemplate
         sb.append("  # if (data.rank) { if (data.rank != '0') { #");
         sb.append("    <span class=\"item-rank\">[${ data.rank }]</span>");
         sb.append("  # } } #");
+        // Rendered ahead of the term rather than in the description line because it is what
+        // distinguishes otherwise identical entries, and because the term shown is the one that
+        // matched - so a tag carried on the label would vanish whenever a synonym matched.
+        sb.append("  # if (data.tag) { #");
+        sb.append(
+                "    <span class=\"me-1 badge rounded-pill text-secondary border border-secondary\">${ data.tag }</span>");
+        sb.append("  # } #");
         sb.append("  # if (data.queryBestMatchTerm) { #");
         sb.append("    ${ data.queryBestMatchTerm }");
         sb.append("    <div class='item-alt-title'>${ data.uiLabel }</div>");
@@ -71,6 +78,7 @@ final class KBHandleTemplate
         var properties = new ArrayList<String>();
         properties.add("identifier");
         properties.add("description");
+        properties.add("tag");
         properties.add("rank");
         properties.add("deprecated");
         properties.add("queryBestMatchTerm");

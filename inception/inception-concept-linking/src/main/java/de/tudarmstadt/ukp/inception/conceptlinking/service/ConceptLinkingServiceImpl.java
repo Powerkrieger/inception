@@ -257,7 +257,7 @@ public class ConceptLinkingServiceImpl
 
         query.withLabelMatchingExactlyAnyOf(exactLabels);
 
-        query.retrieveLabel().retrieveDescription().retrieveDeprecation();
+        query.retrieveLabel().retrieveDescription().retrieveDeprecation().retrieveTag();
 
         List<KBHandle> result;
         if (aKB.isReadOnly()) {
@@ -310,7 +310,7 @@ public class ConceptLinkingServiceImpl
             query.withLabelContainingAnyOf(longLabels);
         }
 
-        query.retrieveLabel().retrieveDescription().retrieveDeprecation();
+        query.retrieveLabel().retrieveDescription().retrieveDeprecation().retrieveTag();
 
         List<KBHandle> result;
         if (aKB.isReadOnly()) {
@@ -352,7 +352,7 @@ public class ConceptLinkingServiceImpl
         // auto-complete functionality
         query.withLabelStartingWith(aQuery);
 
-        query.retrieveLabel().retrieveDescription().retrieveDeprecation();
+        query.retrieveLabel().retrieveDescription().retrieveDeprecation().retrieveTag();
 
         List<KBHandle> result;
         if (aKB.isReadOnly()) {
@@ -403,7 +403,7 @@ public class ConceptLinkingServiceImpl
             iriMatchBuilder.descendantsOf(aConceptScope);
         }
 
-        iriMatchBuilder.retrieveLabel().retrieveDescription().retrieveDeprecation();
+        iriMatchBuilder.retrieveLabel().retrieveDescription().retrieveDeprecation().retrieveTag();
 
         var iriMatches = new LinkedHashSet<KBHandle>();
         if (aKB.isReadOnly() && !suffixSearch) {

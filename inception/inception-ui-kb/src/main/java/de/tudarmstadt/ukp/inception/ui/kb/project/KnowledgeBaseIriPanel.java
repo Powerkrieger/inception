@@ -94,10 +94,14 @@ public class KnowledgeBaseIriPanel
                 kbModel.bind("kb.propertyDescriptionIri"), IriConstants.PROPERTY_DESCRIPTION_IRIS);
         var deprecationPropertyField = buildComboBox("deprecationPropertyIri",
                 kbModel.bind("kb.deprecationPropertyIri"), IriConstants.DEPRECATION_PROPERTY_IRIS);
+        // Unlike the fields above, this one is optional and is not part of any schema profile -
+        // leaving it empty simply means no tag is retrieved and no badge is rendered.
+        var tagField = buildOptionalComboBox("tagIri", kbModel.bind("kb.tagIri"),
+                IriConstants.TAG_IRIS);
 
         comboBoxWrapper.add(classField, subclassField, typeField, subPropertyField,
                 descriptionField, labelField, propertyTypeField, propertyLabelField,
-                propertyDescriptionField, deprecationPropertyField);
+                propertyDescriptionField, deprecationPropertyField, tagField);
 
         // RadioGroup to select the IriSchemaType
         var iriSchemaChoice = new DropDownChoice<SchemaProfile>("iriSchema", selectedSchemaProfile,
@@ -154,6 +158,24 @@ public class KnowledgeBaseIriPanel
         comboBox.add(enabledWhen(() -> CUSTOMSCHEMA.equals(selectedSchemaProfile.getObject())));
         comboBox.setOutputMarkupId(true);
         comboBox.setRequired(true);
+        comboBox.add(IRI_VALIDATOR);
+        // Do nothing just update the model values
+        comboBox.add(new LambdaAjaxFormComponentUpdatingBehavior("change"));
+        return comboBox;
+    }
+
+    /**
+     * Like {@link #buildComboBox}, but for a mapping that may legitimately be left unset: the model
+     * is not pre-filled with the first suggestion, no value is required, and the field stays
+     * editable under every schema profile because it is not part of any of them.
+     */
+    private ComboBox<String> buildOptionalComboBox(String id, IModel<String> model, List<IRI> iris)
+    {
+        var choices = iris.stream().map(IRI::stringValue).collect(toList());
+
+        var comboBox = new ComboBox<>(id, model, choices);
+        comboBox.setOutputMarkupId(true);
+        comboBox.setRequired(false);
         comboBox.add(IRI_VALIDATOR);
         // Do nothing just update the model values
         comboBox.add(new LambdaAjaxFormComponentUpdatingBehavior("change"));

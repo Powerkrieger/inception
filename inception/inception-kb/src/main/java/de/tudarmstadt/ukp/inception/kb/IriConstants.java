@@ -108,6 +108,7 @@ public class IriConstants
     public static final List<IRI> PROPERTY_LABEL_IRIS;
     public static final List<IRI> PROPERTY_DESCRIPTION_IRIS;
     public static final List<IRI> DEPRECATION_PROPERTY_IRIS;
+    public static final List<IRI> TAG_IRIS;
     public static final List<IRI> FTS_IRIS;
 
     static {
@@ -142,6 +143,10 @@ public class IriConstants
         PROPERTY_LABEL_IRIS = asList(RDFS.LABEL, SKOS.PREF_LABEL);
         PROPERTY_DESCRIPTION_IRIS = asList(RDFS.COMMENT, SCHEMA_DESCRIPTION);
         DEPRECATION_PROPERTY_IRIS = asList(OWL.DEPRECATED);
+        // Only suggestions - there is no established vocabulary for "short badge text", so a
+        // knowledge base is expected to name whatever property carries the distinction it wants
+        // surfaced (e.g. an organism for a KB spanning several species).
+        TAG_IRIS = asList(RDFS.COMMENT, SKOS.NOTATION);
         FTS_IRIS = asList(FTS_FUSEKI, FTS_BLAZEGRAPH, FTS_GRAPHDB, FTS_VIRTUOSO, FTS_WIKIDATA,
                 FTS_RDF4J_LUCENE, FTS_STARDOG, FTS_ALLEGRO_GRAPH, FTS_QLEVER, FTS_MARKLOGIC);
     }

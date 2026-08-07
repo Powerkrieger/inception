@@ -521,4 +521,18 @@
       </column>
     </createTable>
   </changeSet>
+
+  <changeSet author="INCEpTION Team" id="20260807-1">
+    <preConditions onFail="MARK_RAN">
+      <not>
+        <columnExists tableName="knowledgebase" columnName="tagIri"/>
+      </not>
+    </preConditions>
+
+    <addColumn tableName="knowledgebase">
+      <column name="tagIri" type="VARCHAR(255)">
+        <constraints nullable="true" />
+      </column>
+    </addColumn>
+  </changeSet>
 </databaseChangeLog>

@@ -40,6 +40,14 @@ public interface SPARQLQueryOptionalElements
 
     SPARQLQueryOptionalElements retrieveDeprecation();
 
+    /**
+     * Request that the tag be retrieved as part of the query. Does nothing unless the knowledge
+     * base has a tag property configured.
+     *
+     * @return the builder (fluent API)
+     */
+    SPARQLQueryOptionalElements retrieveTag();
+
     SPARQLQueryOptionalElements limit(int aLimit);
 
     /**
