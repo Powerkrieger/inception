@@ -21,12 +21,18 @@ import static de.tudarmstadt.ukp.clarin.webanno.ui.annotation.detail.FeatureEdit
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Optional;
 
+import org.danekja.java.util.function.serializable.SerializableSupplier;
 import org.junit.jupiter.api.Test;
 
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
+import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.FeatureState;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
+import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupport;
+import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupportRegistry;
+import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureType;
 
 /**
  * Tests the {@code visibleIf} filtering used to decide, for the currently selected annotation,
@@ -36,6 +42,84 @@ import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
  */
 class FeatureEditorListPanelVisibilityTest
 {
+    /**
+     * None of the features in this test are backed by a real {@link FeatureSupport} (they are plain
+     * {@code uima.cas.String} features not wired to any registered support), so the lookup falls
+     * back to plain {@code String.valueOf} - this stub models that "no support registered" case
+     * without pulling in a mocking framework this test module doesn't otherwise depend on.
+     */
+    private static final FeatureSupportRegistry NO_FEATURE_SUPPORT_REGISTERED = //
+            new FeatureSupportRegistry()
+            {
+                @Override
+                public <T> Optional<FeatureSupport<T>> findExtension(AnnotationFeature aKey)
+                {
+                    return Optional.empty();
+                }
+
+                @Override
+                public List<FeatureType> getAllTypes(AnnotationLayer aLayer)
+                {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public List<FeatureType> getUserSelectableTypes(AnnotationLayer aLayer)
+                {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public FeatureType getFeatureType(AnnotationFeature aFeature)
+                {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public <T> T readTraits(AnnotationFeature aFeature,
+                        SerializableSupplier<T> aIfMissing)
+                {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public boolean isAccessible(AnnotationFeature aFeature)
+                {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public boolean isSupported(AnnotationFeature aFeature)
+                {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public List<FeatureSupport<?>> getExtensions()
+                {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public List<FeatureSupport<?>> getExtensions(AnnotationFeature aContext)
+                {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public <X extends FeatureSupport<?>> Optional<X> getExtension(String aId)
+                {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public <X extends FeatureSupport<?>> Optional<X> findGenericExtension(
+                        AnnotationFeature aKey)
+                {
+                    throw new UnsupportedOperationException();
+                }
+            };
+
     private AnnotationFeature entityTypeFeature;
     private AnnotationFeature genderFeature;
     private AnnotationFeature occupationFeature;
@@ -62,7 +146,7 @@ class FeatureEditorListPanelVisibilityTest
 
     private List<String> visibleNames(List<FeatureState> aStates)
     {
-        return filterVisibleFeatureStates(aStates).stream() //
+        return filterVisibleFeatureStates(aStates, NO_FEATURE_SUPPORT_REGISTERED).stream() //
                 .map(fs -> fs.getFeature().getName()) //
                 .toList();
     }

@@ -15,7 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package de.tudarmstadt.ukp.clarin.webanno.constraints.visibility;
+package de.tudarmstadt.ukp.clarin.webanno.constraints.expression;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
@@ -26,13 +26,13 @@ import java.util.function.Function;
 
 import org.junit.jupiter.api.Test;
 
-class VisibleIfExpressionParserTest
+class FeatureExpressionParserTest
 {
     private boolean eval(String aExpression, Map<String, String> aValues)
-        throws VisibleIfSyntaxException
+        throws FeatureExpressionSyntaxException
     {
         Function<String, String> lookup = aValues::get;
-        return VisibleIfExpressionParser.parse(aExpression).evaluate(lookup);
+        return FeatureExpressionParser.parse(aExpression).evaluate(lookup);
     }
 
     @Test
@@ -116,24 +116,24 @@ class VisibleIfExpressionParserTest
     @Test
     void thatInvalidSyntaxThrows()
     {
-        assertThatExceptionOfType(VisibleIfSyntaxException.class)
-                .isThrownBy(() -> VisibleIfExpressionParser.parse("entityType ="));
-        assertThatExceptionOfType(VisibleIfSyntaxException.class)
-                .isThrownBy(() -> VisibleIfExpressionParser.parse("entityType == \"PERSON\" &&"));
-        assertThatExceptionOfType(VisibleIfSyntaxException.class)
-                .isThrownBy(() -> VisibleIfExpressionParser.parse("(entityType == \"PERSON\""));
-        assertThatExceptionOfType(VisibleIfSyntaxException.class)
-                .isThrownBy(() -> VisibleIfExpressionParser.parse("entityType == \"unterminated"));
-        assertThatExceptionOfType(VisibleIfSyntaxException.class)
-                .isThrownBy(() -> VisibleIfExpressionParser.parse("123abc == \"x\""));
+        assertThatExceptionOfType(FeatureExpressionSyntaxException.class)
+                .isThrownBy(() -> FeatureExpressionParser.parse("entityType ="));
+        assertThatExceptionOfType(FeatureExpressionSyntaxException.class)
+                .isThrownBy(() -> FeatureExpressionParser.parse("entityType == \"PERSON\" &&"));
+        assertThatExceptionOfType(FeatureExpressionSyntaxException.class)
+                .isThrownBy(() -> FeatureExpressionParser.parse("(entityType == \"PERSON\""));
+        assertThatExceptionOfType(FeatureExpressionSyntaxException.class)
+                .isThrownBy(() -> FeatureExpressionParser.parse("entityType == \"unterminated"));
+        assertThatExceptionOfType(FeatureExpressionSyntaxException.class)
+                .isThrownBy(() -> FeatureExpressionParser.parse("123abc == \"x\""));
     }
 
     @Test
     void thatBlankExpressionIsRejectedByParserDirectly()
     {
         // The parser itself requires a well-formed expression; treating blank as "always visible"
-        // is the responsibility of VisibleIfEvaluator, not the parser.
-        assertThatExceptionOfType(VisibleIfSyntaxException.class)
-                .isThrownBy(() -> VisibleIfExpressionParser.parse(""));
+        // is the responsibility of FeatureExpressionEvaluator, not the parser.
+        assertThatExceptionOfType(FeatureExpressionSyntaxException.class)
+                .isThrownBy(() -> FeatureExpressionParser.parse(""));
     }
 }
