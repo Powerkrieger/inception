@@ -1842,6 +1842,7 @@ public class KnowledgeBaseServiceImpl
         return propertyIdentifier.equals(aKB.getLabelIri())
                 || propertyIdentifier.equals(aKB.getSubclassIri())
                 || propertyIdentifier.equals(aKB.getDescriptionIri())
+                || propertyIdentifier.equals(aKB.getTagIri())
                 || propertyIdentifier.equals(aKB.getTypeIri());
     }
 

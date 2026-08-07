@@ -66,6 +66,7 @@ public class KBHandle
         queryBestMatchTerm = builder.queryBestMatchTerm;
         matchTerms = builder.matchTerms;
         description = builder.description;
+        tag = builder.tag;
         kb = builder.kb;
         language = builder.language;
         deprecated = builder.deprecated;
@@ -83,6 +84,7 @@ public class KBHandle
         queryBestMatchTerm = aOther.queryBestMatchTerm;
         matchTerms = aOther.matchTerms;
         description = aOther.description;
+        tag = aOther.tag;
         kb = aOther.kb;
         language = aOther.language;
         deprecated = aOther.deprecated;
@@ -424,6 +426,7 @@ public class KBHandle
         private String queryBestMatchTerm;
         private Set<Pair<String, String>> matchTerms = Collections.emptySet();
         private String description;
+        private String tag;
         private KnowledgeBase kb;
         private String language;
         private boolean deprecated;
@@ -464,6 +467,12 @@ public class KBHandle
         public Builder withDescription(String aDescription)
         {
             description = aDescription;
+            return this;
+        }
+
+        public Builder withTag(String aTag)
+        {
+            tag = aTag;
             return this;
         }
 

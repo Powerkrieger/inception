@@ -74,6 +74,51 @@ public class SPARQLQueryBuilderTest
                 .doesNotContain("LANGMATCHES").doesNotContain("LANG(");
     }
 
+    /**
+     * The tag property is optional and most knowledge bases leave it unset. In that case
+     * {@code retrieveTag()} must be a no-op rather than emitting an OPTIONAL that can never match,
+     * which every query would otherwise pay for.
+     */
+    @Test
+    public void thatNoTagClauseIsEmittedWhenNoTagPropertyIsConfigured() throws Exception
+    {
+        var kb = new KnowledgeBase();
+        initRdfsMapping(kb);
+        kb.setMaxResults(100);
+
+        var sut = new SPARQLQueryBuilder(kb, Mode.CLASS);
+        sut.withPrefLabelProperties(of("http://www.w3.org/2000/01/rdf-schema#label"));
+        sut.roots();
+        sut.retrieveLabel().retrieveTag();
+
+        assertThat(sut.selectQuery().getQueryString()) //
+                .as("no tag variable is projected when no tag property is configured") //
+                .doesNotContain("?tg");
+    }
+
+    @Test
+    public void thatTagIsRetrievedViaTheConfiguredTagProperty() throws Exception
+    {
+        var kb = new KnowledgeBase();
+        initRdfsMapping(kb);
+        kb.setMaxResults(100);
+        kb.setTagIri("https://example.org/ns#organismTag");
+
+        var sut = new SPARQLQueryBuilder(kb, Mode.CLASS);
+        sut.withPrefLabelProperties(of("http://www.w3.org/2000/01/rdf-schema#label"));
+        sut.roots();
+        sut.retrieveLabel().retrieveTag();
+
+        var query = sut.selectQuery().getQueryString();
+
+        assertThat(query) //
+                .as("the tag is retrieved via the configured tag IRI as a constant predicate") //
+                .contains("<https://example.org/ns#organismTag> ?tg");
+        assertThat(query) //
+                .as("the tag lookup is optional - an item without a tag is still returned") //
+                .containsPattern("(?s)OPTIONAL.*organismTag");
+    }
+
     private SPARQLQueryBuilder markLogicBuilder()
     {
         var kb = new KnowledgeBase();
