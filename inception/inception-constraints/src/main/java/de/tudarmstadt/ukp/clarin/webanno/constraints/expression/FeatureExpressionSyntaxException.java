@@ -15,17 +15,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package de.tudarmstadt.ukp.clarin.webanno.constraints.visibility;
+package de.tudarmstadt.ukp.clarin.webanno.constraints.expression;
 
 /**
- * Thrown when a {@code visibleIf} feature-visibility expression cannot be parsed.
+ * Thrown when a feature expression cannot be parsed.
  */
-public class VisibleIfSyntaxException
+public class FeatureExpressionSyntaxException
     extends Exception
 {
     private static final long serialVersionUID = 1L;
 
-    public VisibleIfSyntaxException(String aMessage)
+    public FeatureExpressionSyntaxException(String aMessage)
     {
         super(aMessage);
     }

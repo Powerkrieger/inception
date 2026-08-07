@@ -15,20 +15,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package de.tudarmstadt.ukp.clarin.webanno.constraints.visibility;
+package de.tudarmstadt.ukp.clarin.webanno.constraints.expression;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfExpression.And;
-import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfExpression.Equals;
-import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfExpression.In;
-import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfExpression.Not;
-import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfExpression.Or;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpression.And;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpression.Equals;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpression.In;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpression.Not;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpression.Or;
 
 /**
- * A tiny, deterministic, non-scripting recursive-descent parser for {@code visibleIf} feature
- * visibility expressions.
+ * A tiny, deterministic, non-scripting recursive-descent parser for feature expressions.
  *
  * <pre>
  * expr       := orExpr
@@ -47,14 +46,15 @@ import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfExpress
  * strings. No arbitrary code execution is possible: the grammar has no function calls, no field or
  * method access, and no way to reference anything but feature names and string literals.
  */
-public final class VisibleIfExpressionParser
+public final class FeatureExpressionParser
 {
-    private VisibleIfExpressionParser()
+    private FeatureExpressionParser()
     {
         // Utility class
     }
 
-    public static VisibleIfExpression parse(String aExpression) throws VisibleIfSyntaxException
+    public static FeatureExpression parse(String aExpression)
+        throws FeatureExpressionSyntaxException
     {
         var tokens = new Lexer(aExpression).tokenize();
         var parser = new Parser(tokens, aExpression);
@@ -80,7 +80,7 @@ public final class VisibleIfExpressionParser
             input = aInput == null ? "" : aInput;
         }
 
-        List<Token> tokenize() throws VisibleIfSyntaxException
+        List<Token> tokenize() throws FeatureExpressionSyntaxException
         {
             var tokens = new ArrayList<Token>();
             while (true) {
@@ -140,7 +140,7 @@ public final class VisibleIfExpressionParser
                     tokens.add(readIdent());
                 }
                 else {
-                    throw new VisibleIfSyntaxException(
+                    throw new FeatureExpressionSyntaxException(
                             "Unexpected character '" + c + "' at position " + pos);
                 }
             }
@@ -178,14 +178,14 @@ public final class VisibleIfExpressionParser
             return new Token(TokenType.IDENT, input.substring(start, pos), start);
         }
 
-        private Token readString() throws VisibleIfSyntaxException
+        private Token readString() throws FeatureExpressionSyntaxException
         {
             var start = pos;
             pos++; // consume opening quote
             var sb = new StringBuilder();
             while (true) {
                 if (pos >= input.length()) {
-                    throw new VisibleIfSyntaxException(
+                    throw new FeatureExpressionSyntaxException(
                             "Unterminated string literal starting at position " + start);
                 }
                 var c = input.charAt(pos);
@@ -216,14 +216,14 @@ public final class VisibleIfExpressionParser
             source = aSource;
         }
 
-        void expectEnd() throws VisibleIfSyntaxException
+        void expectEnd() throws FeatureExpressionSyntaxException
         {
             if (current().type() != TokenType.EOF) {
                 throw error("Unexpected trailing input");
             }
         }
 
-        VisibleIfExpression parseOr() throws VisibleIfSyntaxException
+        FeatureExpression parseOr() throws FeatureExpressionSyntaxException
         {
             var left = parseAnd();
             while (current().type() == TokenType.OROR) {
@@ -234,7 +234,7 @@ public final class VisibleIfExpressionParser
             return left;
         }
 
-        private VisibleIfExpression parseAnd() throws VisibleIfSyntaxException
+        private FeatureExpression parseAnd() throws FeatureExpressionSyntaxException
         {
             var left = parseUnary();
             while (current().type() == TokenType.ANDAND) {
@@ -245,7 +245,7 @@ public final class VisibleIfExpressionParser
             return left;
         }
 
-        private VisibleIfExpression parseUnary() throws VisibleIfSyntaxException
+        private FeatureExpression parseUnary() throws FeatureExpressionSyntaxException
         {
             if (current().type() == TokenType.BANG) {
                 advance();
@@ -254,7 +254,7 @@ public final class VisibleIfExpressionParser
             return parsePrimary();
         }
 
-        private VisibleIfExpression parsePrimary() throws VisibleIfSyntaxException
+        private FeatureExpression parsePrimary() throws FeatureExpressionSyntaxException
         {
             if (current().type() == TokenType.LPAREN) {
                 advance();
@@ -266,7 +266,7 @@ public final class VisibleIfExpressionParser
             return parseComparison();
         }
 
-        private VisibleIfExpression parseComparison() throws VisibleIfSyntaxException
+        private FeatureExpression parseComparison() throws FeatureExpressionSyntaxException
         {
             var featureName = expect(TokenType.IDENT, "Expected a feature name").text();
 
@@ -302,7 +302,7 @@ public final class VisibleIfExpressionParser
                     + "'");
         }
 
-        private List<String> parseList() throws VisibleIfSyntaxException
+        private List<String> parseList() throws FeatureExpressionSyntaxException
         {
             expect(TokenType.LBRACKET, "Expected '[' to start a list");
 
@@ -331,7 +331,8 @@ public final class VisibleIfExpressionParser
             }
         }
 
-        private Token expect(TokenType aType, String aMessage) throws VisibleIfSyntaxException
+        private Token expect(TokenType aType, String aMessage)
+            throws FeatureExpressionSyntaxException
         {
             if (current().type() != aType) {
                 throw error(aMessage);
@@ -341,9 +342,9 @@ public final class VisibleIfExpressionParser
             return token;
         }
 
-        private VisibleIfSyntaxException error(String aMessage)
+        private FeatureExpressionSyntaxException error(String aMessage)
         {
-            return new VisibleIfSyntaxException(
+            return new FeatureExpressionSyntaxException(
                     aMessage + " (at position " + current().position() + " in [" + source + "])");
         }
     }

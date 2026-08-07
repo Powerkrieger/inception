@@ -55,8 +55,8 @@ import org.apache.wicket.model.ResourceModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasStorageService;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpressionSyntaxException;
 import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfEvaluator;
-import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfSyntaxException;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.inception.annotation.layer.chain.api.ChainLayerSupport;
@@ -340,7 +340,7 @@ public class FeatureDetailForm
         try {
             VisibleIfEvaluator.validate(feature.getVisibleIf());
         }
-        catch (VisibleIfSyntaxException e) {
+        catch (FeatureExpressionSyntaxException e) {
             error("Invalid \"Visible if\" expression: " + e.getMessage());
             return;
         }

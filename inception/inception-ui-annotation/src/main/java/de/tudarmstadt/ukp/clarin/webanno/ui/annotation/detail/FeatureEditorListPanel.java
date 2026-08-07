@@ -303,7 +303,8 @@ public class FeatureEditorListPanel
             // out of the item list entirely - their editor is not rendered at all (as opposed to
             // being merely disabled), while their FeatureState (and thus any value already
             // entered) remains untouched in the annotator state.
-            var visibleFeatureStates = filterVisibleFeatureStates(featureStates);
+            var visibleFeatureStates = filterVisibleFeatureStates(featureStates,
+                    featureSupportRegistry);
 
             return new ModelIteratorAdapter<FeatureState>(visibleFeatureStates)
             {
@@ -322,28 +323,51 @@ public class FeatureEditorListPanel
      * in the same list. Does not modify the input list or any {@link FeatureState} in it - a
      * feature that is currently hidden keeps its value, it merely does not appear in the result.
      */
-    static List<FeatureState> filterVisibleFeatureStates(List<FeatureState> aFeatureStates)
+    static List<FeatureState> filterVisibleFeatureStates(List<FeatureState> aFeatureStates,
+            FeatureSupportRegistry aFeatureSupportRegistry)
     {
-        var featureValues = featureValueLookup(aFeatureStates);
+        var featureValues = featureValueLookup(aFeatureStates, aFeatureSupportRegistry);
         return aFeatureStates.stream()
                 .filter(fs -> VisibleIfEvaluator.isVisible(fs.getFeature(), featureValues))
                 .toList();
     }
 
     /**
-     * Builds a lookup from feature name to its current (string-converted) value across all features
-     * of the annotation currently being edited, for evaluating {@code visibleIf} expressions. A
-     * feature that has no value, or that does not exist at all, resolves to {@code null}.
+     * Builds a lookup from feature name to the current, CAS-storable string representation of that
+     * feature's value across all features of the annotation currently being edited - e.g. the KB
+     * identifier rather than the display label for a Concept feature, via
+     * {@link FeatureSupport#unwrapFeatureValue}. Plain {@link String#valueOf} would instead yield
+     * the editor value's {@code toString()} (for a Concept feature, the whole {@code KBHandle[...]}
+     * debug string), which no {@code visibleIf} expression could ever match. A feature that has no
+     * value, that does not exist, or for which no {@link FeatureSupport} is registered resolves to
+     * {@code null} or a plain {@link String#valueOf}, respectively.
      */
-    private static Function<String, String> featureValueLookup(List<FeatureState> aFeatureStates)
+    static Function<String, String> featureValueLookup(List<FeatureState> aFeatureStates,
+            FeatureSupportRegistry aFeatureSupportRegistry)
     {
         Map<String, String> values = new HashMap<>();
         for (var featureState : aFeatureStates) {
-            var value = featureState.getValue();
             values.put(featureState.getFeature().getName(),
-                    value != null ? String.valueOf(value) : null);
+                    unwrappedStringValue(featureState, aFeatureSupportRegistry));
         }
         return values::get;
+    }
+
+    private static String unwrappedStringValue(FeatureState aFeatureState,
+            FeatureSupportRegistry aFeatureSupportRegistry)
+    {
+        var value = aFeatureState.getValue();
+        if (value == null) {
+            return null;
+        }
+
+        var support = aFeatureSupportRegistry.findExtension(aFeatureState.getFeature());
+        if (support.isEmpty()) {
+            return String.valueOf(value);
+        }
+
+        Object unwrapped = support.get().unwrapFeatureValue(aFeatureState.getFeature(), value);
+        return unwrapped != null ? String.valueOf(unwrapped) : null;
     }
 
     private void actionFeatureUpdate(Component aComponent, AjaxRequestTarget aTarget)
