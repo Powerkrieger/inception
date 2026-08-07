@@ -41,16 +41,20 @@ final class KBHandleTemplate
         sb.append(
                 "    <span class=\"ms-1 float-end badge rounded-pill text-secondary border border-secondary\">deprecated</span>");
         sb.append("  # } #");
+        // Floated to the trailing edge like the deprecated badge above, so it never pushes the
+        // term itself out of alignment across rows. Emitted before the term because a floated
+        // element has to precede the inline content it floats alongside.
+        //
+        // It lives up here rather than in the description line because it is what distinguishes
+        // otherwise identical entries, and it cannot ride on the label because the title slot
+        // shows the term that matched - a tag on the label would vanish on a synonym hit.
+        sb.append("  # if (data.tag) { #");
+        sb.append(
+                "    <span class=\"ms-1 float-end badge rounded-pill text-secondary border border-secondary\">${ data.tag }</span>");
+        sb.append("  # } #");
         sb.append("  # if (data.rank) { if (data.rank != '0') { #");
         sb.append("    <span class=\"item-rank\">[${ data.rank }]</span>");
         sb.append("  # } } #");
-        // Rendered ahead of the term rather than in the description line because it is what
-        // distinguishes otherwise identical entries, and because the term shown is the one that
-        // matched - so a tag carried on the label would vanish whenever a synonym matched.
-        sb.append("  # if (data.tag) { #");
-        sb.append(
-                "    <span class=\"me-1 badge rounded-pill text-secondary border border-secondary\">${ data.tag }</span>");
-        sb.append("  # } #");
         sb.append("  # if (data.queryBestMatchTerm) { #");
         sb.append("    ${ data.queryBestMatchTerm }");
         sb.append("    <div class='item-alt-title'>${ data.uiLabel }</div>");
