@@ -385,10 +385,13 @@ public abstract class TypeAdapter_ImplBase
         var featureSupport = featureSupportRegistry.findExtension(aFeature).orElseThrow();
         var fs = selectFsByAddr(aCas, aAddress);
         var oldValue = featureSupport.getFeatureValue(aFeature, fs);
+        var oldValueAsString = readFeatureValueAsString(fs, aFeature.getName());
 
         featureSupport.pushFeatureValue(aCas, aFeature, aAddress, aValue);
 
         publishFeatureValueUpdated(aDocument, aUsername, fs, aFeature, featureSupport, oldValue);
+
+        applyDependentFeatureUpdates(aDocument, aUsername, fs, aFeature, oldValueAsString);
 
         clearHiddenFeatures(aDocument, aUsername, fs);
     }
