@@ -25,10 +25,6 @@ import static de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasUpgradeMode.NO
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState.IGNORE;
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentStateChangeFlag.EXPLICIT_ANNOTATOR_USER_ACTION;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.ANNOTATOR;
-import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_FINISHED;
-import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_IN_PROGRESS;
-import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentStateTransition.ANNOTATION_IN_PROGRESS_TO_CURATION_IN_PROGRESS;
-import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentStateTransition.NEW_TO_ANNOTATION_IN_PROGRESS;
 import static de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.SidebarStateChangedEvent.Side.LEFT;
 import static de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.SidebarStateChangedEvent.Side.RIGHT;
 import static de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationPageLayoutState.KEY_LAYOUT_STATE;
@@ -49,6 +45,7 @@ import java.util.Optional;
 
 import org.apache.uima.cas.CAS;
 import org.apache.wicket.AttributeModifier;
+import org.apache.wicket.Component;
 import org.apache.wicket.RestartResponseException;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.feedback.IFeedback;
@@ -80,7 +77,6 @@ import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentStateChangeFlag
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
-import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.component.DocumentNamePanel;
@@ -122,6 +118,8 @@ public abstract class AnnotationPageBase2
     private static final Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
     private static final String MID_EDITOR = "editor";
+
+    protected static final String MID_DOCUMENT_STATUS_BADGES = "documentStatusBadges";
     private static final String MID_NUMBER_OF_PAGES = "numberOfPages";
 
     private static final String LEFT_SIDEBAR_COLLAPSED_SIZE = "52px";
@@ -239,6 +237,8 @@ public abstract class AnnotationPageBase2
 
         centerArea.add(new DocumentNamePanel("documentNamePanel", getModel()));
 
+        centerArea.add(createDocumentStatusBadges(MID_DOCUMENT_STATUS_BADGES));
+
         actionBar = new ActionBar("actionBar");
         actionBar.setOutputMarkupId(true);
         actionBar.add(AttributeModifier.append("class",
@@ -254,15 +254,37 @@ public abstract class AnnotationPageBase2
         createAnnotationEditor(MID_EDITOR);
     }
 
+    protected Component createDocumentStatusBadges(String aId)
+    {
+        return new EmptyPanel(aId);
+    }
+
+    /**
+     * Called before the annotation CAS is created/upgraded and written, so that subclasses can
+     * refuse opening the document - typically by throwing a
+     * {@link org.apache.wicket.RestartResponseException}. Mind that this runs before it is known
+     * whether the document is editable.
+     *
+     * @param aDocument
+     *            the document that is about to be opened.
+     */
+    protected void ensureDocumentMayBeOpened(SourceDocument aDocument)
+    {
+        // Nothing to do by default
+    }
+
     private void persistSidebarSize(SidebarStateChangedEvent.Side aSide, double aSize)
     {
         var project = getProject();
         if (project == null) {
             return;
         }
-        if (aSize < SIDEBAR_SIZE_MIN || aSize > SIDEBAR_SIZE_MAX) {
-            return;
-        }
+
+        // Do not reject sizes outside [MIN, MAX] here: dragging the splitter toward the middle
+        // produces a reported size at (or just above) SIDEBAR_SIZE_MAX due to splitbar-width
+        // rounding, and rejecting it would silently drop the user's drag so the pane snaps back to
+        // its previously stored size on the next page load. The trait setters below already clamp
+        // the value into range, so we simply let them store the clamped size.
 
         var sessionOwner = userRepository.getCurrentUser();
         var layoutState = preferencesService.loadTraitsForUserAndProject(KEY_LAYOUT_STATE,
@@ -528,6 +550,16 @@ public abstract class AnnotationPageBase2
                         .add(visibleWhen(() -> getModelObject().getDocument() != null)));
     }
 
+    /**
+     * @return the main annotation editor component, or {@code null} if none has been created yet.
+     *         Allows page components hosting a second editor (e.g. the reference-document sidebar)
+     *         to coordinate with the main editor, e.g. for viewport synchronization.
+     */
+    public AnnotationEditorBase getAnnotationEditor()
+    {
+        return annotationEditor;
+    }
+
     private SidebarPanel createLeftSidebar(String aId)
     {
         return new SidebarPanel(aId, detailEditor, () -> getEditorCas(), AnnotationPageBase2.this);
@@ -654,12 +686,17 @@ public abstract class AnnotationPageBase2
             // used afterwards. Information has to be re-read from the annotator state to get
             // the latest values.
 
+            ensureDocumentMayBeOpened(state.getDocument());
+
             // Check if there is an annotation document entry in the database. If there is none,
             // create one.
             LOG.trace("Opening document {}@{}", state.getUser(), state.getDocument());
             var annotationDocument = documentService
                     .createOrGetAnnotationDocument(state.getDocument(), state.getUser());
             var stateBeforeOpening = annotationDocument.getState();
+
+            // Update document state
+            transitionDocumentStateOnLoadDocument(state, annotationDocument);
 
             var editable = isEditable();
 
@@ -705,42 +742,7 @@ public abstract class AnnotationPageBase2
 
             // Initialize the visible content - this has to happen after the annotation editor
             // component has been created because only then the paging strategy is known
-            if (aFocus > 0) {
-                state.moveToUnit(editorCas, aFocus, CENTERED);
-            }
-            else if (dataOwnerName.equals(sessionOwnerName)
-                    || dataOwnerName.equals(CURATION_USER)) {
-                var offset = TypeAdapter_ImplBase.getResumptionLocation(editorCas);
-                state.moveToOffset(editorCas, offset, CENTERED);
-            }
-            else {
-                state.moveToUnit(editorCas, 0, TOP);
-            }
-
-            // Update document state
-            if (isEditable()) {
-                if (SourceDocumentState.NEW == state.getDocument().getState()) {
-                    documentService.transitionSourceDocumentState(state.getDocument(),
-                            NEW_TO_ANNOTATION_IN_PROGRESS);
-                }
-
-                // We maintain an AnnotationDocument for the `CURATION_USER` now
-                if (AnnotationDocumentState.NEW == annotationDocument.getState()) {
-                    documentService.setAnnotationDocumentState(annotationDocument,
-                            AnnotationDocumentState.IN_PROGRESS, EXPLICIT_ANNOTATOR_USER_ACTION);
-                }
-
-                // We also use the SourceDocumentState to indicate the curation status
-                if (state.getUser().getUsername().equals(CURATION_USER)) {
-                    var sourceDoc = state.getDocument();
-                    var sourceDocState = sourceDoc.getState();
-                    if (sourceDocState != CURATION_IN_PROGRESS
-                            && sourceDocState != CURATION_FINISHED) {
-                        documentService.transitionSourceDocumentState(sourceDoc,
-                                ANNOTATION_IN_PROGRESS_TO_CURATION_IN_PROGRESS);
-                    }
-                }
-            }
+            moveToFocus(aFocus, sessionOwnerName, state, editorCas, dataOwnerName);
 
             // Reset the editor (we reload the page content below, so in order not to schedule
             // a double-update, we pass null here)
@@ -765,6 +767,38 @@ public abstract class AnnotationPageBase2
             handleException(aTarget, e);
         }
     }
+
+    private void moveToFocus(int aFocus, String sessionOwnerName, AnnotatorState state,
+            CAS editorCas, String dataOwnerName)
+    {
+        if (aFocus > 0) {
+            state.moveToUnit(editorCas, aFocus, CENTERED);
+        }
+        else if (dataOwnerName.equals(sessionOwnerName) || dataOwnerName.equals(CURATION_USER)) {
+            var offset = TypeAdapter_ImplBase.getResumptionLocation(editorCas);
+            state.moveToOffset(editorCas, offset, CENTERED);
+        }
+        else {
+            state.moveToUnit(editorCas, 0, TOP);
+        }
+    }
+
+    /**
+     * This is called for every document load, whether or not the document is editable. Implementors
+     * decide per transition whether editability matters.
+     * <p>
+     * Editability is cached per request ({@code annotationNotEditableReason}), and the caller has
+     * already resolved it before this method runs. An implementor that transitions into editability
+     * and then wants to act on it has to call {@link #clearIsEditableCache()} in between, otherwise
+     * {@link #isEditable()} still reports the verdict from before the transition.
+     *
+     * @param state
+     *            the annotator state of the document being opened.
+     * @param annotationDocument
+     *            the annotation document of the data owner the document is opened for.
+     */
+    protected abstract void transitionDocumentStateOnLoadDocument(AnnotatorState state,
+            AnnotationDocument annotationDocument);
 
     @Override
     public void actionRefreshDocument(AjaxRequestTarget aTarget)

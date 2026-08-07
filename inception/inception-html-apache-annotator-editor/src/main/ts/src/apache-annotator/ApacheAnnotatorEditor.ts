@@ -20,6 +20,11 @@ import {
     type DiamAjax,
     type DocumentStructureStrategy,
     type Offsets,
+    type TocLevel,
+    type ViewportScrollPosition,
+    type ViewportScrollTarget,
+    type ViewportSyncPeer,
+    buildDocumentStructure,
     calculateStartOffset,
 } from '@inception-project/inception-js-api';
 import DocumentStructureNavigator from '@inception-project/inception-js-api/src/documentStructure/DocumentStructureNavigator.svelte';
@@ -58,11 +63,14 @@ export class ApacheAnnotatorEditor implements AnnotationEditor {
     private navigatorContainer: HTMLElement;
     private deferredInitializationSteps: (() => void)[] = [];
     private initializationComplete = false;
+    private viewportSyncHub?: ViewportSyncPeer;
+    private viewportSyncId?: string;
     private protectedElements: Set<string>;
     private protectedElementsMatcher?: (el: Element) => boolean;
     private activeResizeCleanup: (() => void) | undefined = undefined;
     private documentStructure: DocumentStructureStrategy;
     private documentContainer: HTMLElement | undefined = undefined;
+    private tocRoot: TocLevel | undefined = undefined;
     private keyboardMode: KeyboardEditorMode | undefined = undefined;
 
     public constructor(
@@ -131,8 +139,8 @@ export class ApacheAnnotatorEditor implements AnnotationEditor {
                 );
                 this.ensureSectionElementsHaveAnId();
 
-                // Build the outline for the navigator, operating on the post-pinning DOM.
                 this.documentStructure.preprocess(documentContainer);
+                this.tocRoot = buildDocumentStructure(documentContainer, this.documentStructure);
 
                 this.navigatorContainer = this.root.ownerDocument.createElement('div');
                 this.navigatorContainer.classList.add('iaa-document-navigator');
@@ -156,12 +164,19 @@ export class ApacheAnnotatorEditor implements AnnotationEditor {
                 );
                 this.vis.protectedElementSelector = [...protectedElements].join(',');
 
+                this.vis.setSyncDocumentStructure({
+                    sectionSelector: () => this.documentStructure.sectionSelector,
+                    extractKey: (section) => this.documentStructure.extractKey(section),
+                    tocRoot: () => this.tocRoot,
+                });
+
                 this.documentContainer = documentContainer;
 
                 this.documentStructureNavigator = this.createDocumentNavigator(
                     this.navigatorContainer,
                     documentContainer,
-                    this.documentStructure
+                    this.documentStructure,
+                    this.tocRoot
                 );
                 this.toolbar = this.createToolbar();
 
@@ -203,7 +218,20 @@ export class ApacheAnnotatorEditor implements AnnotationEditor {
             })
             .then(() => {
                 this.initializationComplete = true;
+                this.registerViewportSync();
             });
+    }
+
+    /**
+     * Connect to the scroll-sync hub if a connection has been requested and the visualizer is ready.
+     * The visualizer's sync controller owns the actual registration (it knows the scroll container);
+     * the editor only gates on lifecycle - registration must wait until the viewport wrapper exists.
+     */
+    private registerViewportSync(): void {
+        if (!this.viewportSyncHub || !this.viewportSyncId || !this.initializationComplete) {
+            return;
+        }
+        this.vis?.connectToHub(this.viewportSyncHub, this.viewportSyncId, this);
     }
 
     /**
@@ -386,13 +414,15 @@ export class ApacheAnnotatorEditor implements AnnotationEditor {
     private createDocumentNavigator(
         target: HTMLElement,
         documentContainer: HTMLElement,
-        structure: DocumentStructureStrategy
+        structure: DocumentStructureStrategy,
+        tocRoot: TocLevel
     ) {
         return mount(DocumentStructureNavigator, {
             target,
             props: {
                 documentContainer,
                 structure,
+                tocRoot,
             },
         });
     }
@@ -477,7 +507,33 @@ export class ApacheAnnotatorEditor implements AnnotationEditor {
         this.keyboardMode?.moveCaretToOffset(args.offset);
     }
 
+    getViewportScrollPosition(): ViewportScrollPosition | null {
+        if (!this.initializationComplete) return null;
+        return this.vis?.getViewportScrollPosition() ?? null;
+    }
+
+    scrollToViewportPosition(pos: ViewportScrollTarget): void {
+        if (!this.initializationComplete) return;
+        this.vis?.scrollToViewportPosition(pos);
+    }
+
+    connectViewportSync(aHub: ViewportSyncPeer, aId: string): void {
+        this.viewportSyncHub = aHub;
+        this.viewportSyncId = aId;
+        // Connects now if the visualizer is ready; otherwise the init chain connects once the
+        // viewport wrapper exists (see registerViewportSync).
+        this.registerViewportSync();
+    }
+
+    disconnectViewportSync(): void {
+        this.vis?.disconnectFromHub();
+        this.viewportSyncHub = undefined;
+        this.viewportSyncId = undefined;
+    }
+
     destroy(): void {
+        this.disconnectViewportSync();
+
         // Clean up any active resize operation
         if (this.activeResizeCleanup) {
             this.activeResizeCleanup();
