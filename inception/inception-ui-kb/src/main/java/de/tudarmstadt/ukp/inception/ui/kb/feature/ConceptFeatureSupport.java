@@ -227,6 +227,36 @@ public class ConceptFeatureSupport
                 isNotBlank(newDefault) ? getConceptHandle(feature, newDefault, traits) : null);
     }
 
+    @Override
+    public void onSiblingFeatureValueUpdated(AnnotationFeature aFeature, FeatureStructure aFS,
+            Function<String, String> aCurrentValues, Function<String, String> aPreviousValues)
+        throws AnnotationException
+    {
+        var traits = readTraits(aFeature);
+        if (traits.getConditionalDefaultValues().isEmpty()) {
+            return;
+        }
+
+        var oldDefault = ConditionalDefaultValueEvaluator.computeDefaultValue(
+                traits.getDefaultValue(), traits.getConditionalDefaultValues(), aPreviousValues);
+        var newDefault = ConditionalDefaultValueEvaluator.computeDefaultValue(
+                traits.getDefaultValue(), traits.getConditionalDefaultValues(), aCurrentValues);
+        if (Objects.equals(oldDefault, newDefault)) {
+            // None of the features this feature's default depends on actually changed value.
+            return;
+        }
+
+        var currentValue = readSiblingValue(aFS, aFeature.getName());
+        if (!Objects.equals(currentValue, oldDefault)) {
+            // The current value does not match what the default logic would previously have
+            // produced, so it was set deliberately - never overwrite it.
+            return;
+        }
+
+        setFeatureValue(aFS.getCAS(), aFeature, ICasUtil.getAddr(aFS),
+                isNotBlank(newDefault) ? newDefault : null);
+    }
+
     private static String readSiblingValue(FeatureStructure aFS, String aFeatureName)
     {
         var feature = aFS.getType().getFeatureByBaseName(aFeatureName);

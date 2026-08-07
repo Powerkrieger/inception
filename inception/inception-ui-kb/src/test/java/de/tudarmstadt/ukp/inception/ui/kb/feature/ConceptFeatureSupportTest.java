@@ -274,4 +274,81 @@ public class ConceptFeatureSupportTest
 
         assertThat(sut.unwrapFeatureValue(feature, featureState.getValue())).isEqualTo("membrane");
     }
+
+    // -- onSiblingFeatureValueUpdated (recompute for values written straight to the CAS) --------
+
+    /**
+     * The case that motivated this hook: a recommender suggestion is accepted, so the annotation is
+     * created first - applying the plain fallback default while entityType is still unset - and the
+     * predicted entityType is only written afterwards, straight to the CAS. Without this the
+     * compartment keeps the fallback even though the rule now matches.
+     */
+    @Test
+    public void thatOnSiblingFeatureValueUpdatedAppliesConditionalDefaultOnCas() throws Exception
+    {
+        var fs = createFsWithFeatures("entityType", "compartmentType");
+        FSUtil.setFeature(fs, "entityType", "Gene");
+        FSUtil.setFeature(fs, "compartmentType", "cytoplasm");
+
+        var feature = compartmentTypeFeatureWithRule();
+
+        sut.onSiblingFeatureValueUpdated(feature, fs, //
+                name -> "entityType".equals(name) ? "Gene" : null, //
+                name -> null);
+
+        assertThat(FSUtil.getFeature(fs, "compartmentType", String.class)).isEqualTo("nucleus");
+    }
+
+    @Test
+    public void thatOnSiblingFeatureValueUpdatedRevertsToFallbackOnCas() throws Exception
+    {
+        var fs = createFsWithFeatures("entityType", "compartmentType");
+        FSUtil.setFeature(fs, "entityType", "Protein");
+        FSUtil.setFeature(fs, "compartmentType", "nucleus");
+
+        var feature = compartmentTypeFeatureWithRule();
+
+        sut.onSiblingFeatureValueUpdated(feature, fs, //
+                name -> "entityType".equals(name) ? "Protein" : null, //
+                name -> "entityType".equals(name) ? "Gene" : null);
+
+        assertThat(FSUtil.getFeature(fs, "compartmentType", String.class)).isEqualTo("cytoplasm");
+    }
+
+    @Test
+    public void thatOnSiblingFeatureValueUpdatedDoesNotOverrideDeliberateValueOnCas()
+        throws Exception
+    {
+        var fs = createFsWithFeatures("entityType", "compartmentType");
+        FSUtil.setFeature(fs, "entityType", "Protein");
+        // Does not match what the rule would have produced for the previous entityType (nucleus),
+        // so it was set deliberately and must survive.
+        FSUtil.setFeature(fs, "compartmentType", "membrane");
+
+        var feature = compartmentTypeFeatureWithRule();
+
+        sut.onSiblingFeatureValueUpdated(feature, fs, //
+                name -> "entityType".equals(name) ? "Protein" : null, //
+                name -> "entityType".equals(name) ? "Gene" : null);
+
+        assertThat(FSUtil.getFeature(fs, "compartmentType", String.class)).isEqualTo("membrane");
+    }
+
+    @Test
+    public void thatOnSiblingFeatureValueUpdatedDoesNothingWhenNoRulesConfigured() throws Exception
+    {
+        var fs = createFsWithFeatures("entityType", "compartmentType");
+        FSUtil.setFeature(fs, "entityType", "Gene");
+        FSUtil.setFeature(fs, "compartmentType", "cytoplasm");
+
+        var feature = new AnnotationFeature("compartmentType",
+                ConceptFeatureSupport.PREFIX + "someConcept");
+        sut.writeTraits(feature, new ConceptFeatureTraits());
+
+        sut.onSiblingFeatureValueUpdated(feature, fs, //
+                name -> "entityType".equals(name) ? "Gene" : null, //
+                name -> null);
+
+        assertThat(FSUtil.getFeature(fs, "compartmentType", String.class)).isEqualTo("cytoplasm");
+    }
 }

@@ -19,6 +19,7 @@ package de.tudarmstadt.ukp.inception.annotation.layer;
 
 import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.getAddr;
 import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.selectFsByAddr;
+import static java.lang.Boolean.TRUE;
 import static java.util.Collections.emptyList;
 
 import java.io.Serializable;
@@ -32,6 +33,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import org.apache.uima.cas.CAS;
@@ -64,6 +66,13 @@ public abstract class TypeAdapter_ImplBase
     implements TypeAdapter
 {
     private static final Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
+
+    /**
+     * Guards {@link #applyDependentFeatureUpdates} against re-entering itself when a dependent
+     * feature is written. Thread-scoped because a CAS is only ever touched by one thread at a time,
+     * while a single adapter instance is shared.
+     */
+    private static final ThreadLocal<Boolean> applyingDependentUpdates = new ThreadLocal<>();
 
     private final LayerSupportRegistry layerSupportRegistry;
     private final FeatureSupportRegistry featureSupportRegistry;
@@ -250,6 +259,7 @@ public abstract class TypeAdapter_ImplBase
         var featureSupport = featureSupportRegistry.findExtension(aFeature).orElseThrow();
         var fs = selectFsByAddr(aCas, aAddress);
         var oldValue = featureSupport.getFeatureValue(aFeature, fs);
+        var oldValueAsString = readFeatureValueAsString(fs, aFeature.getName());
 
         featureSupport.setFeatureValue(aCas, aFeature, aAddress, aValue);
 
@@ -259,7 +269,66 @@ public abstract class TypeAdapter_ImplBase
             setResumptionLocation(aCas, ann.getBegin());
         }
 
+        applyDependentFeatureUpdates(aDocument, aUsername, fs, aFeature, oldValueAsString);
+
         clearHiddenFeatures(aDocument, aUsername, fs);
+    }
+
+    /**
+     * Lets the other features of the annotation react to the value just written, e.g. to recompute
+     * a default that is conditional on it.
+     * <p>
+     * The editor has its own path for this via {@link FeatureSupport#onFeatureValueUpdated}, which
+     * only runs while the annotation detail form is open. Doing it here as well is what makes the
+     * behaviour hold for values written straight to the CAS - accepting a recommender suggestion,
+     * the remote API, bulk operations - rather than being a property of the editor.
+     */
+    private void applyDependentFeatureUpdates(SourceDocument aDocument, String aUsername,
+            FeatureStructure aFS, AnnotationFeature aChangedFeature, String aOldValueAsString)
+        throws AnnotationException
+    {
+        // A dependent feature is itself written through setFeatureValue, which lands back here.
+        // The recursion terminates on its own - the second pass sees the triggering feature
+        // unchanged and computes the same default - but there is no reason to walk every feature
+        // again, so cut it off.
+        if (TRUE.equals(applyingDependentUpdates.get())) {
+            return;
+        }
+
+        var changedName = aChangedFeature.getName();
+        var newValueAsString = readFeatureValueAsString(aFS, changedName);
+        if (Objects.equals(aOldValueAsString, newValueAsString)) {
+            return;
+        }
+
+        Function<String, String> currentValues = name -> readFeatureValueAsString(aFS, name);
+        Function<String, String> previousValues = name -> changedName.equals(name)
+                ? aOldValueAsString
+                : readFeatureValueAsString(aFS, name);
+
+        applyingDependentUpdates.set(TRUE);
+        try {
+            for (var feature : listFeatures()) {
+                if (feature.getName().equals(changedName) || !feature.isEnabled()) {
+                    continue;
+                }
+
+                var support = featureSupportRegistry.findExtension(feature).orElse(null);
+                if (support != null) {
+                    support.onSiblingFeatureValueUpdated(feature, aFS, currentValues,
+                            previousValues);
+                }
+            }
+        }
+        finally {
+            applyingDependentUpdates.remove();
+        }
+    }
+
+    private static String readFeatureValueAsString(FeatureStructure aFS, String aFeatureName)
+    {
+        var feature = aFS.getType().getFeatureByBaseName(aFeatureName);
+        return feature == null ? null : aFS.getFeatureValueAsString(feature);
     }
 
     @Override

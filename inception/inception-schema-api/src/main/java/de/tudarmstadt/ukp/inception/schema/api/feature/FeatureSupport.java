@@ -458,6 +458,36 @@ public interface FeatureSupport<T>
         // Nothing by default
     }
 
+    /**
+     * The counterpart of {@link #onFeatureValueUpdated} for values written straight to the CAS
+     * rather than through the annotation editor - accepting a recommender suggestion, the remote
+     * API, bulk operations. Called for every other feature of the annotation after one of its
+     * features has been written.
+     * <p>
+     * A feature support may use this to update its own feature's value on {@code aFS}, e.g. to
+     * recompute a default which depends on a sibling feature. It must not touch any other feature.
+     *
+     * @param aFeature
+     *            the feature owned by this feature support - the one that may need updating, not
+     *            the one that was just written.
+     * @param aFS
+     *            the annotation, already carrying the new value of the feature that changed.
+     * @param aCurrentValues
+     *            resolves the current value of any feature of the same annotation by feature name;
+     *            {@code null} for a missing/unset feature.
+     * @param aPreviousValues
+     *            resolves the value any feature of the same annotation had before this update, by
+     *            feature name; {@code null} for a missing/unset feature.
+     * @throws AnnotationException
+     *             if the value could not be updated.
+     */
+    default void onSiblingFeatureValueUpdated(AnnotationFeature aFeature, FeatureStructure aFS,
+            Function<String, String> aCurrentValues, Function<String, String> aPreviousValues)
+        throws AnnotationException
+    {
+        // Nothing by default
+    }
+
     default IllegalArgumentException unsupportedFeatureTypeException(AnnotationFeature aFeature)
     {
         return new IllegalArgumentException("Unsupported type [" + aFeature.getType()
