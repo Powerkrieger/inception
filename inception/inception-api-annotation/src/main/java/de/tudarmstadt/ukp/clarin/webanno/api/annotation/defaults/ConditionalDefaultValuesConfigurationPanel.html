@@ -27,6 +27,10 @@
       </div>
       <div class="d-flex flex-column">
         <input wicket:id="condition" class="form-control mb-1" placeholder="Condition, e.g. entityType == &quot;Gene&quot;"/>
+        <div class="form-check mb-1">
+          <input wicket:id="clearValue" type="checkbox" class="form-check-input"/>
+          <label wicket:for="clearValue" class="form-check-label">No value (leave the feature empty)</label>
+        </div>
         <div class="flex-fill">
           <div class="input-group">
             <div wicket:id="value" class="flex-fill"/>

@@ -164,6 +164,52 @@ public class ConceptFeatureSupportTest
         assertThat(FSUtil.getFeature(fs, "compartmentType", String.class)).isEqualTo("nucleus");
     }
 
+    @Test
+    public void thatInitializeAnnotationLeavesValueEmptyWhenRuleClearsIt() throws Exception
+    {
+        var fs = createFsWithFeatures("entityType", "compartmentType");
+        FSUtil.setFeature(fs, "entityType", "Drug");
+
+        var feature = new AnnotationFeature("compartmentType",
+                ConceptFeatureSupport.PREFIX + "someConcept");
+
+        var traits = new ConceptFeatureTraits();
+        traits.setDefaultValue("cytoplasm");
+        var clearRule = new ConditionalDefaultValueRule("entityType == \"Drug\"", null);
+        clearRule.setClearValue(true);
+        traits.setConditionalDefaultValues(List.of(clearRule));
+        sut.writeTraits(feature, traits);
+
+        sut.initializeAnnotation(feature, fs);
+
+        assertThat(FSUtil.getFeature(fs, "compartmentType", String.class)).isNull();
+    }
+
+    @Test
+    public void thatOnFeatureValueUpdatedClearsAutoSetValueWhenSiblingMatchesClearRule()
+    {
+        var feature = new AnnotationFeature("compartmentType",
+                ConceptFeatureSupport.PREFIX + "someConcept");
+        var traits = new ConceptFeatureTraits();
+        traits.setDefaultValue("cytoplasm");
+        var clearRule = new ConditionalDefaultValueRule("entityType == \"Drug\"", null);
+        clearRule.setClearValue(true);
+        traits.setConditionalDefaultValues(List.of(clearRule));
+        sut.writeTraits(feature, traits);
+
+        // Untouched: currently holds the plain fallback default (cytoplasm) that was applied at
+        // creation time, when entityType was not yet set.
+        var featureState = new FeatureState(VID.NONE_ID, feature, new KBHandle("cytoplasm"));
+
+        Function<String, String> previousValues = Map.<String, String> of()::get; // entityType was
+                                                                                  // unset
+        Function<String, String> currentValues = Map.of("entityType", "Drug")::get;
+
+        sut.onFeatureValueUpdated(featureState, currentValues, previousValues);
+
+        assertThat(featureState.getValue()).isNull();
+    }
+
     private FeatureStructure createFsWithFeatures(String... aFeatureNames) throws Exception
     {
         var tsd = UIMAFramework.getResourceSpecifierFactory().createTypeSystemDescription();
