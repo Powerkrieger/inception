@@ -31,6 +31,11 @@ import java.io.Serializable;
  * {@link de.tudarmstadt.ukp.clarin.webanno.constraints.expression.FeatureExpression}, e.g.
  * {@code entityType == "Gene"} - the same small expression language that also backs
  * {@link de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature#getVisibleIf()}.
+ * <p>
+ * A rule can also stand for "leave the value empty", e.g. a Drug has no cell compartment. That is
+ * distinct from a rule simply having no value configured yet: {@code clearValue} marks the former
+ * so {@link ConditionalDefaultValueEvaluator} knows to match the rule and produce an empty default
+ * rather than falling through to the plain default.
  *
  * @see ConditionalDefaultValueEvaluator
  */
@@ -41,6 +46,7 @@ public class ConditionalDefaultValueRule
 
     private String condition;
     private String value;
+    private boolean clearValue;
 
     public ConditionalDefaultValueRule()
     {
@@ -71,5 +77,15 @@ public class ConditionalDefaultValueRule
     public void setValue(String aValue)
     {
         value = aValue;
+    }
+
+    public boolean isClearValue()
+    {
+        return clearValue;
+    }
+
+    public void setClearValue(boolean aClearValue)
+    {
+        clearValue = aClearValue;
     }
 }

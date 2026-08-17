@@ -22,9 +22,11 @@ import static org.apache.commons.lang3.StringUtils.isBlank;
 import java.util.List;
 
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.ajax.form.AjaxFormComponentUpdatingBehavior;
 import org.apache.wicket.feedback.IFeedback;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
+import org.apache.wicket.markup.html.form.CheckBox;
 import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.markup.html.form.TextField;
 import org.apache.wicket.markup.html.list.ListItem;
@@ -116,6 +118,25 @@ public class ConditionalDefaultValuesConfigurationPanel
         editor.getLabelComponent().setVisible(false);
         container.add(editor);
 
+        // Lets a rule stand for "no value" (e.g. a Drug has no cell compartment) rather than
+        // requiring every rule to pick a concrete value.
+        var clearValue = new CheckBox("clearValue");
+        clearValue.add(new AjaxFormComponentUpdatingBehavior("change")
+        {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected void onUpdate(AjaxRequestTarget aTarget)
+            {
+                editor.setEnabled(!clearValue.getModelObject());
+                if (clearValue.getModelObject()) {
+                    featureState.getObject().setValue(null);
+                }
+                aTarget.add(container);
+            }
+        });
+        container.add(clearValue);
+
         container.add(createRulesList("rules", rules));
     }
 
@@ -135,7 +156,9 @@ public class ConditionalDefaultValuesConfigurationPanel
                 var rule = aItem.getModelObject();
 
                 aItem.add(new Label("condition", rule.getCondition()));
-                aItem.add(new Label("value", fs.renderFeatureValue(feature, rule.getValue())));
+                var valueLabel = rule.isClearValue() ? "(no value)"
+                        : fs.renderFeatureValue(feature, rule.getValue());
+                aItem.add(new Label("value", valueLabel));
                 aItem.add(new LambdaAjaxLink("removeRule",
                         _target -> removeRule(_target, aItem.getModelObject())));
             }
@@ -158,22 +181,29 @@ public class ConditionalDefaultValuesConfigurationPanel
         }
 
         // Copy value from the value editor over into the form model (rule) and then add it to the
-        // list
+        // list - unless the rule is meant to clear the value, in which case there is no value to
+        // copy and none is required.
         var feature = getModelObject();
         FeatureSupport<?> fs = featureSupportRegistry.findExtension(feature).orElseThrow();
-        var value = fs.unwrapFeatureValue(feature, featureState.getObject().value);
-        if (value == null) {
-            error("Value is required");
-            aTarget.addChildren(getPage(), IFeedback.class);
-            return;
+        if (rule.isClearValue()) {
+            rule.setValue(null);
         }
-        rule.setValue(String.valueOf(value));
+        else {
+            var value = fs.unwrapFeatureValue(feature, featureState.getObject().value);
+            if (value == null) {
+                error("Value is required");
+                aTarget.addChildren(getPage(), IFeedback.class);
+                return;
+            }
+            rule.setValue(String.valueOf(value));
+        }
 
         rules.getObject().add(rule);
 
         // Clear form and value editor
         aForm.setModelObject(new ConditionalDefaultValueRule());
         featureState.getObject().setValue(null);
+        editor.setEnabled(true);
 
         success("Rule added. Do not forget to save the feature details!");
         aTarget.addChildren(getPage(), IFeedback.class);

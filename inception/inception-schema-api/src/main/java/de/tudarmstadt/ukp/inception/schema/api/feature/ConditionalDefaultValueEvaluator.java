@@ -61,10 +61,11 @@ public final class ConditionalDefaultValueEvaluator
             List<ConditionalDefaultValueRule> aRules, Function<String, String> aFeatureValues)
     {
         for (var rule : aRules) {
-            if (isNotBlank(rule.getCondition()) && isNotBlank(rule.getValue())
+            if (isNotBlank(rule.getCondition())
+                    && (isNotBlank(rule.getValue()) || rule.isClearValue())
                     && FeatureExpressionEvaluator.evaluate(rule.getCondition(), aFeatureValues,
                             FALLBACK_NO_MATCH)) {
-                return rule.getValue();
+                return rule.isClearValue() ? null : rule.getValue();
             }
         }
         return aFallbackDefault;
