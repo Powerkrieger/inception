@@ -144,6 +144,17 @@ public class AnnotationDetailEditorPanel
         confirmationDialog.trapFocus();
         queue(confirmationDialog);
 
+        // When the active editor is a read-only viewer, the feature values are shown as plain
+        // text instead of in (disabled) editors, so that they can be copied and links followed
+        var layerSelectionView = new WebMarkupContainer("layerSelectionView");
+        layerSelectionView.add(visibleWhen(() -> !isReadOnlyView()));
+        queue(layerSelectionView);
+        var featureEditorView = new WebMarkupContainer("featureEditorView");
+        featureEditorView.add(visibleWhen(() -> !isReadOnlyView()));
+        queue(featureEditorView);
+        queue(new ReadOnlyFeatureValuesPanel("readOnlyFeatureValues", getModel(), this)
+                .add(visibleWhen(this::isReadOnlyView)));
+
         queue(layerSelectionPanel = new LayerSelectionPanel("layerContainer", getModel()));
         queue(new AnnotationInfoPanel("infoContainer", getModel(), this));
         queue(featureEditorListPanel = new FeatureEditorListPanel("featureEditorListPanel",
@@ -312,6 +323,20 @@ public class AnnotationDetailEditorPanel
         return editorPage.getActiveContext() //
                 .map(DiamContext::getActionHandler) //
                 .map(AnnotationActionHandler::isEditable) //
+                .orElse(false);
+    }
+
+    /**
+     * @return whether an annotation is selected in an editor that is a permanently read-only viewer
+     *         (as opposed to an editor that is merely not editable at the moment, e.g. because the
+     *         document is finished).
+     */
+    boolean isReadOnlyView()
+    {
+        return editorPage.getActiveContext() //
+                .filter(context -> !context.isEditor()) //
+                .map(DiamContext::getAnnotatorState) //
+                .map(state -> state.getSelection().getAnnotation().isSet()) //
                 .orElse(false);
     }
 
@@ -673,7 +698,9 @@ public class AnnotationDetailEditorPanel
                 .map(AnnotationLayer::isReadonly) //
                 .orElse(true) //
                 .getObject();
-        setEnabled(isActiveEditorEditable() && !selectedLayerIsReadOnly);
+        // A read-only view stays enabled so that its links remain followable - it offers no
+        // editing controls, and the viewer's action handler rejects any mutation anyway
+        setEnabled(isReadOnlyView() || (isActiveEditorEditable() && !selectedLayerIsReadOnly));
     }
 
     @Override

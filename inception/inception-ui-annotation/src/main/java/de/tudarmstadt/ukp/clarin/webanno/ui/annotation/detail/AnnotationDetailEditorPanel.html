@@ -22,7 +22,9 @@
     <div id="annotationDetailEditorPanel" class="flex-content flex-v-container">
       <div wicket:id=deleteAnnotationDialog/>
       <div id="annotationFeatureForm" class="annotatation-detail-panel flex-content flex-v-container flex-gutter flex-only-internal-gutter">
-        <div wicket:id="layerContainer" class="card"/>
+        <wicket:container wicket:id="layerSelectionView">
+          <div wicket:id="layerContainer" class="card"/>
+        </wicket:container>
         <div class="flex-content panel card">
           <div wicket:id="header" class="card-header">
             <div class="clearfix">
@@ -55,7 +57,10 @@
             <div wicket:id="infoContainer"/>
             <div wicket:id="relationListContainer"/>
             <!-- Using container so no-data-notice is filling space correctly -->
-            <wicket:container wicket:id="featureEditorListPanel"/>
+            <wicket:container wicket:id="featureEditorView">
+              <wicket:container wicket:id="featureEditorListPanel"/>
+            </wicket:container>
+            <div wicket:id="readOnlyFeatureValues"/>
           </div>
         </div>
       </div>
