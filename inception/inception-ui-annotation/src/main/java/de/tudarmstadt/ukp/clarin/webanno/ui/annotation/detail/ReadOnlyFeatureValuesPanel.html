@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<!--
+  Licensed to the Technische Universität Darmstadt under one
+  or more contributor license agreements.  See the NOTICE file
+  distributed with this work for additional information
+  regarding copyright ownership.  The Technische Universität Darmstadt
+  licenses this file to you under the Apache License, Version 2.0 (the
+  "License"); you may not use this file except in compliance
+  with the License.
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<html xmlns:wicket="http://wicket.apache.org">
+<body>
+  <wicket:panel>
+    <div class="mt-2 border-top pt-2">
+      <div class="small text-muted mb-2">
+        <i class="fas fa-lock me-1"></i><wicket:message key="readOnly.notice"/>
+      </div>
+      <div wicket:id="noFeaturesNotice" class="text-muted">
+        <wicket:message key="readOnly.noFeatures"/>
+      </div>
+      <dl class="mb-0">
+        <wicket:container wicket:id="features">
+          <dt wicket:id="name"></dt>
+          <dd class="text-break">
+            <div wicket:id="value"></div>
+            <div wicket:id="noValue" class="text-muted">&ndash;</div>
+            <div wicket:id="identifiers" class="small">
+              <a wicket:id="link" target="_blank" rel="noopener noreferrer"></a>
+              <code wicket:id="text"></code>
+            </div>
+          </dd>
+        </wicket:container>
+      </dl>
+    </div>
+  </wicket:panel>
+</body>
+</html>

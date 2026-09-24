@@ -109,6 +109,7 @@ public class AnnotatorsPanel
     private static final String ACTION_CONTEXT_MENU = "contextMenu";
     private static final String ACTION_SELECT_ARC_FOR_MERGE = "selectArcForMerge";
     private static final String ACTION_SELECT_SPAN_FOR_MERGE = "selectSpanForMerge";
+    private static final String ACTION_INSPECT = "inspect";
 
     private static final long serialVersionUID = 8736268179612831795L;
 
@@ -152,7 +153,7 @@ public class AnnotatorsPanel
                     @Override
                     protected void onClientEvent(AjaxRequestTarget aTarget) throws Exception
                     {
-                        AnnotatorsPanel.this.onClientEvent(aTarget, annotatorSegment);
+                        AnnotatorsPanel.this.onClientEvent(aTarget, annotatorSegment, this);
                     }
                 };
                 curationVisualizer.setOutputMarkupId(true);
@@ -165,19 +166,28 @@ public class AnnotatorsPanel
 
     /**
      * Method is called, if user has clicked on a span or an arc in the sentence panel. The span or
-     * arc respectively is identified and copied to the merge CAS.
+     * arc respectively is identified and copied to the merge CAS - unless the user only wants to
+     * inspect it, in which case it is shown in the annotation detail panel instead.
      */
-    protected void onClientEvent(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment)
+    protected void onClientEvent(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment,
+            BratSuggestionVisualizer aVisualizer)
         throws UIMAException, IOException, AnnotationException
     {
+        var request = getRequest().getPostParameters();
+        var action = request.getParameterValue(PARAM_ACTION);
+
+        // Inspecting does not change anything, so it remains possible on finished documents
+        if (ACTION_INSPECT.equals(action.toString())) {
+            aVisualizer.actionInspect(aTarget,
+                    VID.parse(request.getParameterValue(PARAM_ID).toString()));
+            return;
+        }
+
         if (isDocumentFinished(documentService, aSegment.getAnnotatorState())) {
             error("This document is already closed. Please ask the project manager to re-open it.");
             aTarget.addChildren(getPage(), IFeedback.class);
             return;
         }
-
-        var request = getRequest().getPostParameters();
-        var action = request.getParameterValue(PARAM_ACTION);
 
         if (!action.isEmpty()) {
             var type = removePrefix(request.getParameterValue(PARAM_TYPE).toString());
@@ -231,6 +241,9 @@ public class AnnotatorsPanel
 
             writeEditorCas(sourceState, targetCas);
 
+            // Show the merged annotation rather than the one of the annotator being inspected
+            endInspection(aTarget, sourceState);
+
             AnnotationFS sourceAnnotation = ICasUtil.selectAnnotationByAddr(sourceCas,
                     sourceVid.getId());
 
@@ -239,6 +252,21 @@ public class AnnotatorsPanel
                         sourceAnnotation.getBegin(), CENTERED);
             }
         }
+    }
+
+    /**
+     * If the detail panel is showing an annotation of one of the annotators, hand it back to the
+     * curator's editor.
+     */
+    private void endInspection(AjaxRequestTarget aTarget, AnnotatorState aState)
+    {
+        if (manager.getActiveContext().filter(BratSuggestionVisualizer::isInspectionContext)
+                .isEmpty()) {
+            return;
+        }
+
+        manager.setActiveContext(aTarget,
+                manager.findEditorFor(aState.getDocument(), aState.getDataOwner()).orElse(null));
     }
 
     private void actionAcceptAll(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment,
@@ -406,6 +434,9 @@ public class AnnotatorsPanel
     @SuppressWarnings("javadoc")
     public void init(AjaxRequestTarget aTarget, AnnotatorState aState) throws IOException
     {
+        // The annotator viewers are rebuilt below, so an inspection must not outlive them
+        endInspection(aTarget, aState);
+
         if (aState.getDocument() == null) {
             return;
         }

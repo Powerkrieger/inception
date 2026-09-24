@@ -37,6 +37,16 @@ export class CurationMod {
     onClick(evt: MouseEvent) {
         const target = evt.target as HTMLElement;
 
+        // Ctrl/Cmd-click only shows the annotation in the annotation detail panel instead of
+        // merging it
+        if (evt.ctrlKey || evt.metaKey) {
+            const id = target.getAttribute('data-arc-ed') || target.getAttribute('data-span-id');
+            if (id) {
+                this.dispatcher.post('ajax', [{ action: 'inspect', id }]);
+            }
+            return;
+        }
+
         // if clicked on a span, send ajax call to server
         const type = target.getAttribute('data-arc-role');
         if (type) {
