@@ -22,13 +22,11 @@ import org.apache.wicket.model.IModel;
 import org.springframework.core.annotation.Order;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
-import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebarFactory_ImplBase;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
-import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorViewState;
 
 @Order(2000)
 public class LayerVisibilitySidebarFactory
@@ -47,15 +45,14 @@ public class LayerVisibilitySidebarFactory
     }
 
     @Override
-    public Component createIcon(String aId, IModel<AnnotatorState> aState)
+    public Component createIcon(String aId, IModel<AnnotatorViewState> aState)
     {
-        return new Icon(aId, FontAwesome5IconType.layer_group_s);
+        return new Icon(aId, FontAwesome7IconType.layer_group_s);
     }
 
     @Override
-    public AnnotationSidebar_ImplBase create(String aId, AnnotationActionHandler aActionHandler,
-            CasProvider aCasProvider, AnnotationPageBase2 aAnnotationPage)
+    public AnnotationSidebar_ImplBase create(String aId, AnnotationPageBase2 aAnnotationPage)
     {
-        return new LayerVisibilitySidebar(aId, aActionHandler, aCasProvider, aAnnotationPage);
+        return new LayerVisibilitySidebar(aId, aAnnotationPage);
     }
 }

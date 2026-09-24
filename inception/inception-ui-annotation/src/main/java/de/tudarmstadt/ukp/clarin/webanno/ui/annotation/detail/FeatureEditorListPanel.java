@@ -23,6 +23,7 @@ import static java.util.Optional.empty;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -53,18 +54,19 @@ import org.slf4j.LoggerFactory;
 import org.wicketstuff.event.annotation.OnEvent;
 import org.wicketstuff.kendo.ui.form.TextField;
 
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
 import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfEvaluator;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.util.CachingReuseStrategy;
 import de.tudarmstadt.ukp.inception.annotation.feature.link.LinkFeatureEditor;
+import de.tudarmstadt.ukp.inception.diam.editing.AnnotationEditingService;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.FeatureState;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditor;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditorValueChangedEvent;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupport;
+import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupportRegistry;
 import de.tudarmstadt.ukp.inception.support.uima.ICasUtil;
 import de.tudarmstadt.ukp.inception.support.wicket.DescriptionTooltipBehavior;
@@ -80,6 +82,7 @@ public class FeatureEditorListPanel
 
     private @SpringBean FeatureSupportRegistry featureSupportRegistry;
     private @SpringBean AnnotationSchemaService annotationService;
+    private @SpringBean AnnotationEditingService annotationEditingService;
 
     private final WebMarkupContainer featureEditorContainer;
     private final WebMarkupContainer noFeaturesWarning;
@@ -188,19 +191,37 @@ public class FeatureEditorListPanel
         public final static IsSidebarAction INSTANCE = new IsSidebarAction();
     }
 
+    private record FeatureEditorCacheKey(VID annotation, Long documentId, String dataOwner)
+        implements Serializable
+    {
+        static FeatureEditorCacheKey of(AnnotatorState aState)
+        {
+            var document = aState.getDocument();
+            var dataOwner = aState.getUser();
+
+            return new FeatureEditorCacheKey(aState.getSelection().getAnnotation(),
+                    document != null ? document.getId() : null,
+                    dataOwner != null ? dataOwner.getUsername() : null);
+        }
+    }
+
     private class FeatureEditorPanelContent
         extends RefreshingView<FeatureState>
     {
         private static final long serialVersionUID = -8359786805333207043L;
 
+        // This strategy caches items as long as the panel exists. This is important to
+        // allow the Kendo ComboBox datasources to be re-read when constraints change the
+        // available tags.
+        private final CachingReuseStrategy reuseStrategy = new CachingReuseStrategy();
+
+        private FeatureEditorCacheKey cachedFor;
+
         FeatureEditorPanelContent(String aId)
         {
             super(aId);
             setOutputMarkupId(true);
-            // This strategy caches items as long as the panel exists. This is important to
-            // allow the Kendo ComboBox datasources to be re-read when constraints change the
-            // available tags.
-            setItemReuseStrategy(new CachingReuseStrategy());
+            setItemReuseStrategy(reuseStrategy);
         }
 
         @Override
@@ -233,7 +254,7 @@ public class FeatureEditorListPanel
                     .orElseThrow();
             var editorPanel = findParent(AnnotationDetailEditorPanel.class);
             final var editor = featureSupport.createEditor("editor", featureEditorContainer,
-                    editorPanel, getModel(), aItem.getModel());
+                    editorPanel.activeActionHandler(), getModel(), aItem.getModel());
 
             // We need to enable the markup ID here because we use it during the AJAX behavior
             // that automatically saves feature editors on change/blur.
@@ -300,7 +321,15 @@ public class FeatureEditorListPanel
         @Override
         protected Iterator<IModel<FeatureState>> getItemModels()
         {
-            List<FeatureState> featureStates = getModelObject().getFeatureStates();
+            // The cache should only preserve models while editing a given annotation.
+            // When switching annotations, we clear the cache.
+            var cacheKey = FeatureEditorCacheKey.of(getModelObject());
+            if (!Objects.equals(cachedFor, cacheKey)) {
+                reuseStrategy.clear();
+                cachedFor = cacheKey;
+            }
+
+            var featureStates = getModelObject().getFeatureStates();
 
             // Features with a visibleIf expression that currently evaluates to false are left
             // out of the item list entirely - their editor is not rendered at all (as opposed to
@@ -375,12 +404,13 @@ public class FeatureEditorListPanel
     private void actionFeatureUpdate(Component aComponent, AjaxRequestTarget aTarget)
         throws AnnotationException, IOException
     {
-        findParent(AnnotationPageBase.class).ensureIsEditable();
+        var editorPanel = findParent(AnnotationDetailEditorPanel.class);
+
+        editorPanel.ensureActiveEditorIsEditable();
 
         var state = getModelObject();
 
-        var editorPanel = findParent(AnnotationDetailEditorPanel.class);
-        var cas = editorPanel.getEditorCas();
+        var cas = editorPanel.activeEditorCas();
 
         var dependentDefaultsChanged = recomputeDependentDefaultValues(state, cas);
 
@@ -397,10 +427,10 @@ public class FeatureEditorListPanel
         getRequestCycle().setMetaData(IsSidebarAction.INSTANCE, true);
 
         var adapter = annotationService.getAdapter(state.getSelectedAnnotationLayer());
-        editorPanel.commitFeatureStates(aTarget, state.getDocument(), state.getUser().getUsername(),
-                cas, state.getSelection().getAnnotation().getId(), adapter,
-                state.getFeatureStates());
-        editorPanel.internalCompleteAnnotation(aTarget, cas);
+        editorPanel.reportMessages(aTarget, annotationEditingService.commitFeatureStates(
+                state.getDocument(), state.getUser().getUsername(), cas,
+                state.getSelection().getAnnotation().getId(), adapter, state.getFeatureStates()));
+        editorPanel.internalCompleteAnnotation(aTarget);
         state.clearArmedSlot();
 
         // If the focus was lost during the update, then try force-focusing the

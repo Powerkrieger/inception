@@ -22,6 +22,7 @@ public final class Logging
     public static final String KEY_PROJECT_ID = "projectId";
     public static final String KEY_USERNAME = "username";
     public static final String KEY_REPOSITORY_PATH = "repositoryPath";
+    public static final String KEY_REMOTE_ADDRESS = "remoteAddress";
 
     private Logging()
     {

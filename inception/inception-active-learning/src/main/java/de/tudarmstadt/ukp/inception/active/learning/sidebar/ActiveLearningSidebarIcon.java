@@ -22,7 +22,7 @@ import static de.tudarmstadt.ukp.inception.active.learning.sidebar.ActiveLearnin
 import java.util.Set;
 
 import org.apache.wicket.ClassAttributeModifier;
-import org.apache.wicket.markup.html.panel.Panel;
+import org.apache.wicket.markup.html.panel.GenericPanel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
@@ -30,28 +30,28 @@ import org.wicketstuff.event.annotation.OnEvent;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.IconType;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.inception.active.learning.ActiveLearningService;
 import de.tudarmstadt.ukp.inception.active.learning.event.ActiveLearningSessionCompletedEvent;
 import de.tudarmstadt.ukp.inception.active.learning.event.ActiveLearningSessionStartedEvent;
-import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorViewState;
 
 public class ActiveLearningSidebarIcon
-    extends Panel
+    extends GenericPanel<AnnotatorViewState>
 {
     private static final long serialVersionUID = -1870047500327624860L;
 
     private @SpringBean ActiveLearningService activeLearningService;
     private @SpringBean UserDao userService;
 
-    public ActiveLearningSidebarIcon(String aId, IModel<AnnotatorState> aState)
+    public ActiveLearningSidebarIcon(String aId, IModel<AnnotatorViewState> aState)
     {
         super(aId, aState);
 
         setOutputMarkupId(true);
 
-        queue(new Icon("icon", FontAwesome5IconType.font_s));
+        queue(new Icon("icon", FontAwesome7IconType.font_s));
         queue(new Icon("badge", LoadableDetachableModel.of(this::getStateIcon))
                 .add(new ClassAttributeModifier()
                 {
@@ -74,17 +74,6 @@ public class ActiveLearningSidebarIcon
                 }));
     }
 
-    @SuppressWarnings("unchecked")
-    public IModel<AnnotatorState> getModel()
-    {
-        return (IModel<AnnotatorState>) getDefaultModel();
-    }
-
-    public AnnotatorState getModelObject()
-    {
-        return (AnnotatorState) getDefaultModelObject();
-    }
-
     private boolean isSessionActive()
     {
         var alState = getPage().getMetaData(CURRENT_AL_USER_STATE);
@@ -94,10 +83,10 @@ public class ActiveLearningSidebarIcon
     private IconType getStateIcon()
     {
         if (isSessionActive()) {
-            return FontAwesome5IconType.play_circle_s;
+            return FontAwesome7IconType.play_circle_s;
         }
 
-        return FontAwesome5IconType.stop_circle_s;
+        return FontAwesome7IconType.stop_circle_s;
     }
 
     @OnEvent

@@ -23,19 +23,18 @@ import java.io.IOException;
 
 import org.apache.uima.cas.CAS;
 import org.apache.wicket.ajax.AjaxRequestTarget;
-import org.apache.wicket.request.Request;
 import org.springframework.core.annotation.Order;
 
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.MoveSpanAnnotationRequest;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanAdapter;
-import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
+import de.tudarmstadt.ukp.inception.diam.editor.DiamRequest;
 import de.tudarmstadt.ukp.inception.diam.editor.config.DiamAutoConfig;
-import de.tudarmstadt.ukp.inception.diam.model.DiamContext;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.DefaultAjaxResponse;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
 import de.tudarmstadt.ukp.inception.rendering.selection.Selection;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.support.uima.ICasUtil;
 import de.tudarmstadt.ukp.inception.support.uima.Range;
 
@@ -64,20 +63,21 @@ public class MoveSpanAnnotationHandler
     }
 
     @Override
-    public DefaultAjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-            Request aRequest)
+    public DefaultAjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
     {
         try {
-            var context = aBehavior.getContext();
+            var context = aRequest.getContext();
 
             context.getActionHandler().ensureIsEditable();
+            context.activate(aTarget);
 
             var cas = context.getEditorCas();
             var vid = getVid(aRequest);
             var state = context.getAnnotatorState();
             var range = getRangeFromRequest(state, aRequest.getRequestParameters(), cas);
             moveSpan(context, aTarget, cas, vid, range);
-            context.getActionHandler().writeEditorCas();
+
+            context.getActionHandler().writeEditorCas(cas);
             return new DefaultAjaxResponse(getAction(aRequest));
         }
         catch (Exception e) {

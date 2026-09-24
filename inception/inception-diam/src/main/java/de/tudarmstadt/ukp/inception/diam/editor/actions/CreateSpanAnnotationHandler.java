@@ -26,21 +26,20 @@ import org.apache.uima.cas.text.AnnotationFS;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.feedback.IFeedback;
 import org.apache.wicket.request.IRequestParameters;
-import org.apache.wicket.request.Request;
 import org.springframework.core.annotation.Order;
 
 import de.tudarmstadt.ukp.inception.annotation.layer.chain.api.ChainAdapter;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.CreateSpanAnnotationRequest;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanAdapter;
-import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
+import de.tudarmstadt.ukp.inception.diam.editor.DiamRequest;
 import de.tudarmstadt.ukp.inception.diam.editor.config.DiamAutoConfig;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.DefaultAjaxResponse;
 import de.tudarmstadt.ukp.inception.diam.model.compact.CompactRangeList;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.rendering.selection.Selection;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
 import de.tudarmstadt.ukp.inception.support.uima.Range;
 
@@ -70,12 +69,12 @@ public class CreateSpanAnnotationHandler
     }
 
     @Override
-    public DefaultAjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-            Request aRequest)
+    public DefaultAjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
     {
         try {
-            var context = aBehavior.getContext();
+            var context = aRequest.getContext();
             context.getActionHandler().ensureIsEditable();
+            context.activate(aTarget);
 
             var state = context.getAnnotatorState();
             var layer = state.getDefaultAnnotationLayer();
@@ -124,7 +123,7 @@ public class CreateSpanAnnotationHandler
                 }
             }
 
-            commitAnnotation(aTarget, context, state, selection);
+            commitAnnotation(aTarget, context, selection);
 
             return new DefaultAjaxResponse(getAction(aRequest));
         }

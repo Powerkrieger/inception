@@ -30,13 +30,14 @@ import org.apache.wicket.spring.injection.annot.SpringBean;
 import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.editor.AnnotationEditorFactory;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.editor.view.DocumentViewFactory;
 import de.tudarmstadt.ukp.inception.externaleditor.ExternalAnnotationEditorBase;
 import de.tudarmstadt.ukp.inception.externaleditor.model.AnnotationEditorProperties;
 import de.tudarmstadt.ukp.inception.recogitojseditor.resources.RecogitoJsCssResourceReference;
 import de.tudarmstadt.ukp.inception.recogitojseditor.resources.RecogitoJsJavascriptResourceReference;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import jakarta.servlet.ServletContext;
 
 public class RecogitoHtmlAnnotationEditor
@@ -50,10 +51,10 @@ public class RecogitoHtmlAnnotationEditor
     private @SpringBean ServletContext servletContext;
 
     public RecogitoHtmlAnnotationEditor(String aId, IModel<AnnotatorState> aModel,
-            AnnotationActionHandler aActionHandler, CasProvider aCasProvider,
-            String aEditorFactoryId)
+            DocumentEditorManager aManager, AnnotationActionHandler aActionHandler,
+            CasProvider aCasProvider, String aEditorFactoryId)
     {
-        super(aId, aModel, aActionHandler, aCasProvider, aEditorFactoryId);
+        super(aId, aModel, aManager, aActionHandler, aCasProvider, aEditorFactoryId);
     }
 
     @Override

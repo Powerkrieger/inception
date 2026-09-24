@@ -61,22 +61,12 @@
     </dependency>
     <dependency>
       <groupId>de.tudarmstadt.ukp.inception.app</groupId>
-      <artifactId>inception-annotation-storage-api</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>de.tudarmstadt.ukp.inception.app</groupId>
       <artifactId>inception-api-editor</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>de.tudarmstadt.ukp.inception.app</groupId>
       <artifactId>inception-api-render</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>de.tudarmstadt.ukp.inception.app</groupId>
-      <artifactId>inception-api-diam</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -163,10 +153,6 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot</artifactId>
     </dependency>
-    <dependency>
-      <groupId>org.springframework.security</groupId>
-      <artifactId>spring-security-core</artifactId>
-    </dependency>
 
     <!-- Wicket dependencies -->
     <dependency>
@@ -212,10 +198,6 @@
     <dependency>
       <groupId>org.wicketstuff</groupId>
       <artifactId>wicketstuff-input-events</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.wicketstuff</groupId>
-      <artifactId>wicketstuff-urlfragment</artifactId>
     </dependency>
     <dependency>
       <groupId>de.agilecoders.wicket</groupId>

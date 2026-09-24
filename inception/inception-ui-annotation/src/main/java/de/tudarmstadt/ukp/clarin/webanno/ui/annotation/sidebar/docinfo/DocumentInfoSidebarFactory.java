@@ -22,14 +22,13 @@ import org.apache.wicket.model.IModel;
 import org.springframework.core.annotation.Order;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
-import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebarFactory_ImplBase;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorViewState;
 
 // This now mainly serves as example code - we do not actually use it
 @Order(1)
@@ -49,9 +48,9 @@ public class DocumentInfoSidebarFactory
     }
 
     @Override
-    public Component createIcon(String aId, IModel<AnnotatorState> aState)
+    public Component createIcon(String aId, IModel<AnnotatorViewState> aState)
     {
-        return new Icon(aId, FontAwesome5IconType.info_s);
+        return new Icon(aId, FontAwesome7IconType.info_s);
     }
 
     @Override
@@ -67,9 +66,8 @@ public class DocumentInfoSidebarFactory
     }
 
     @Override
-    public AnnotationSidebar_ImplBase create(String aId, AnnotationActionHandler aActionHandler,
-            CasProvider aCasProvider, AnnotationPageBase2 aAnnotationPage)
+    public AnnotationSidebar_ImplBase create(String aId, AnnotationPageBase2 aAnnotationPage)
     {
-        return new DocumentInfoSidebar(aId, aActionHandler, aCasProvider, aAnnotationPage);
+        return new DocumentInfoSidebar(aId, aAnnotationPage);
     }
 }

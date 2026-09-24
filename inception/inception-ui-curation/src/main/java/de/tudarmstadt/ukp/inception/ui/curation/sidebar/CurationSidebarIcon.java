@@ -17,9 +17,9 @@
  */
 package de.tudarmstadt.ukp.inception.ui.curation.sidebar;
 
-import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType.clipboard_s;
-import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType.play_circle_s;
-import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType.stop_circle_s;
+import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType.clipboard_s;
+import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType.play_circle_s;
+import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType.stop_circle_s;
 
 import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.markup.html.panel.GenericPanel;
@@ -30,18 +30,18 @@ import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPage;
 import de.tudarmstadt.ukp.inception.curation.api.CurationSessionService;
-import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorViewState;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior;
 
 public class CurationSidebarIcon
-    extends GenericPanel<AnnotatorState>
+    extends GenericPanel<AnnotatorViewState>
 {
     private static final long serialVersionUID = -1870047500327624860L;
 
     private @SpringBean CurationSessionService curationSessionService;
     private @SpringBean UserDao userService;
 
-    public CurationSidebarIcon(String aId, IModel<AnnotatorState> aState)
+    public CurationSidebarIcon(String aId, IModel<AnnotatorViewState> aState)
     {
         super(aId, aState);
 

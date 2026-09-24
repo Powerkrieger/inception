@@ -42,8 +42,8 @@ import org.apache.wicket.util.resource.IResourceStream;
 import org.wicketstuff.event.annotation.OnEvent;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.inception.annotation.storage.CasMetadataUtils;
 import de.tudarmstadt.ukp.inception.bootstrap.BootstrapModalDialog;
@@ -58,9 +58,9 @@ import de.tudarmstadt.ukp.inception.recommendation.api.model.SpanSuggestion;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.SuggestionGroup;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.SuggestionGroup.GroupKey;
 import de.tudarmstadt.ukp.inception.recommendation.api.recommender.RecommendationEngineFactory;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
 import de.tudarmstadt.ukp.inception.support.wicket.AjaxDownloadLink;
 import de.tudarmstadt.ukp.inception.support.wicket.TempFileResource;
@@ -112,13 +112,13 @@ public class RecommenderInfoPanel
                 if (evaluatedRecommender.isPresent()) {
                     EvaluatedRecommender evalRec = evaluatedRecommender.get();
                     if (evalRec.isActive()) {
-                        state.add(new Icon("icon", FontAwesome5IconType.play_circle_s));
+                        state.add(new Icon("icon", FontAwesome7IconType.play_circle_s));
                         state.add(AttributeModifier.replace("title", "[Active]"));
                         state.add(AttributeModifier.append("title", evalRec.getReasonForState()));
                         state.add(AttributeModifier.append("class", "text-bg-success bg-success"));
                     }
                     else {
-                        state.add(new Icon("icon", FontAwesome5IconType.stop_circle_s));
+                        state.add(new Icon("icon", FontAwesome7IconType.stop_circle_s));
                         state.add(AttributeModifier.replace("title", "[Inactive]"));
                         state.add(AttributeModifier.append("title", evalRec.getReasonForState()));
                         state.add(AttributeModifier.append("style", "; cursor: help"));
@@ -126,7 +126,7 @@ public class RecommenderInfoPanel
                     }
                 }
                 else {
-                    state.add(new Icon("icon", FontAwesome5IconType.hourglass_half_s));
+                    state.add(new Icon("icon", FontAwesome7IconType.hourglass_half_s));
                     state.add(AttributeModifier.replace("title", "Pending..."));
                     state.add(AttributeModifier.append("class", "text-bg-light bg-light"));
                 }
@@ -256,9 +256,9 @@ public class RecommenderInfoPanel
         var sessionOwner = userService.getCurrentUser();
         var state = getModelObject();
 
-        var page = findParent(AnnotationPageBase.class);
+        var context = findParent(DocumentEditorManager.class).getActiveContext().orElseThrow();
 
-        var cas = page.getEditorCas();
+        var cas = context.getEditorCas();
 
         var predictions = recommendationService.getPredictions(sessionOwner, state.getProject(),
                 RECOMMENDER_SOURCE);
@@ -326,7 +326,7 @@ public class RecommenderInfoPanel
         }
 
         // Save CAS after annotations have been created
-        page.writeEditorCas(cas);
+        context.getActionHandler().writeEditorCas(cas);
 
         if (accepted > 0) {
             success(String.format("Accepted %d suggestions", accepted));
@@ -345,6 +345,6 @@ public class RecommenderInfoPanel
             aTarget.addChildren(getPage(), IFeedback.class);
         }
 
-        page.actionRefreshDocument(aTarget);
+        context.actionRefreshDocument(aTarget);
     }
 }

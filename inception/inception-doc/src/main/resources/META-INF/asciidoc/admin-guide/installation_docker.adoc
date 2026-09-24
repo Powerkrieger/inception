@@ -232,8 +232,8 @@ There is a lot more that you can do using Docker and Docker Compose. Please see 
 
 The `restart: unless-stopped` policy in the Compose script causes Docker to bring the containers
 back up after a crash and after the Docker daemon itself restarts - but only for containers that
-still *exist*. It does not help if the stack was torn down with `docker-compose down` (which
-*removes* the containers), and it does nothing to run `docker-compose up` in the first place after a
+still *exist*. It does not help if the stack was torn down with `docker compose down` (which
+*removes* the containers), and it does nothing to run `docker compose up` in the first place after a
 host reboot if you normally start the stack by hand. To reliably start {product-name} whenever the
 host boots, register the Compose project as a systemd service.
 
@@ -270,11 +270,11 @@ $ sudo systemctl enable --now inception
 
 From now on the stack is started on every boot and stopped cleanly on shutdown. Because systemd runs
 `docker compose up` itself, this approach does not rely on the containers surviving a reboot and thus
-also covers the case where they were previously removed with `docker-compose down`.
+also covers the case where they were previously removed with `docker compose down`.
 
-NOTE: The unit above uses the `docker compose` (Compose V2) plugin. If your host still uses the
-      standalone `docker-compose` binary, replace `/usr/bin/docker compose` with the path to
-      `docker-compose` (e.g. `/usr/local/bin/docker-compose`).
+NOTE: If your host still uses the standalone `docker-compose` binary, replace
+      `/usr/bin/docker compose` in the unit above with the path to `docker-compose`
+      (e.g. `/usr/local/bin/docker-compose`).
 
 === Upgrading with Docker Compose
 

@@ -28,13 +28,14 @@ import de.tudarmstadt.ukp.clarin.webanno.api.annotation.paging.NoPagingStrategy;
 import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
 import de.tudarmstadt.ukp.inception.editor.AnnotationEditorBase;
 import de.tudarmstadt.ukp.inception.editor.AnnotationEditorFactoryImplBase;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.externaleditor.config.ExternalEditorPluginDescripion;
 import de.tudarmstadt.ukp.inception.preferences.ClientSidePreferenceKey;
 import de.tudarmstadt.ukp.inception.preferences.ClientSidePreferenceMapValue;
 import de.tudarmstadt.ukp.inception.preferences.ClientSideUserPreferencesProvider;
 import de.tudarmstadt.ukp.inception.preferences.PreferenceValue;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import de.tudarmstadt.ukp.inception.support.io.WatchedResourceFile;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
 import de.tudarmstadt.ukp.inception.support.xml.sanitizer.PolicyCollection;
@@ -92,9 +93,10 @@ public class ExternalAnnotationEditorFactory
 
     @Override
     public AnnotationEditorBase create(String aId, IModel<AnnotatorState> aModel,
-            AnnotationActionHandler aActionHandler, CasProvider aCasProvider)
+            DocumentEditorManager aManager, AnnotationActionHandler aActionHandler,
+            CasProvider aCasProvider)
     {
-        return new ExternalAnnotationEditor(aId, aModel, aActionHandler, aCasProvider,
+        return new ExternalAnnotationEditor(aId, aModel, aManager, aActionHandler, aCasProvider,
                 getBeanName());
     }
 

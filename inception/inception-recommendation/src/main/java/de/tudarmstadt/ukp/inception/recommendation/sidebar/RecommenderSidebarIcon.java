@@ -20,7 +20,7 @@ package de.tudarmstadt.ukp.inception.recommendation.sidebar;
 import java.util.Set;
 
 import org.apache.wicket.ClassAttributeModifier;
-import org.apache.wicket.markup.html.panel.Panel;
+import org.apache.wicket.markup.html.panel.GenericPanel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
@@ -28,28 +28,28 @@ import org.wicketstuff.event.annotation.OnEvent;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.IconType;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.inception.recommendation.api.RecommendationService;
 import de.tudarmstadt.ukp.inception.recommendation.event.RecommendersResumedEvent;
 import de.tudarmstadt.ukp.inception.recommendation.event.RecommendersSuspendedEvent;
-import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorViewState;
 
 public class RecommenderSidebarIcon
-    extends Panel
+    extends GenericPanel<AnnotatorViewState>
 {
     private static final long serialVersionUID = -1870047500327624860L;
 
     private @SpringBean RecommendationService recommendationService;
     private @SpringBean UserDao userService;
 
-    public RecommenderSidebarIcon(String aId, IModel<AnnotatorState> aState)
+    public RecommenderSidebarIcon(String aId, IModel<AnnotatorViewState> aState)
     {
         super(aId, aState);
 
         setOutputMarkupId(true);
 
-        queue(new Icon("icon", FontAwesome5IconType.robot_s));
+        queue(new Icon("icon", FontAwesome7IconType.robot_s));
         queue(new Icon("badge", LoadableDetachableModel.of(this::getStateIcon))
                 .add(new ClassAttributeModifier()
                 {
@@ -72,17 +72,6 @@ public class RecommenderSidebarIcon
                 }));
     }
 
-    @SuppressWarnings("unchecked")
-    public IModel<AnnotatorState> getModel()
-    {
-        return (IModel<AnnotatorState>) getDefaultModel();
-    }
-
-    public AnnotatorState getModelObject()
-    {
-        return (AnnotatorState) getDefaultModelObject();
-    }
-
     private boolean isSessionActive()
     {
         return !recommendationService.isSuspended(userService.getCurrentUsername(),
@@ -92,10 +81,10 @@ public class RecommenderSidebarIcon
     private IconType getStateIcon()
     {
         if (isSessionActive()) {
-            return FontAwesome5IconType.play_circle_s;
+            return FontAwesome7IconType.play_circle_s;
         }
 
-        return FontAwesome5IconType.stop_circle_s;
+        return FontAwesome7IconType.stop_circle_s;
     }
 
     @OnEvent

@@ -31,12 +31,10 @@ import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.PropertyModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
 import jakarta.persistence.NoResultException;
 
@@ -47,16 +45,16 @@ public class AnnotationTextPanel
 
     private @SpringBean AnnotationSchemaService annotationService;
 
-    private final AnnotationActionHandler actionHandler;
+    private final AnnotationDetailEditorPanel owner;
 
-    public AnnotationTextPanel(String aId, AnnotationActionHandler aActionHandler,
+    public AnnotationTextPanel(String aId, AnnotationDetailEditorPanel aOwner,
             IModel<AnnotatorState> aModel)
     {
         super(aId, aModel);
 
-        actionHandler = aActionHandler;
+        owner = aOwner;
 
-        add(new Label("selectedText", PropertyModel.of(getModelObject(), "selection.text"))
+        add(new Label("selectedText", PropertyModel.of(aModel, "selection.text"))
                 .add(visibleWhen(() -> !isRelationSelected())));
         add(new LambdaAjaxLink("jumpToAnnotation", this::actionJumpToAnnotation) //
                 .setAlwaysEnabled(true) // avoid disabling in read-only mode
@@ -64,11 +62,11 @@ public class AnnotationTextPanel
 
         add(new Label("originName", LoadableDetachableModel.of(this::getOriginName))
                 .add(visibleWhen(() -> isRelationSelected())));
-        add(new Label("originText", PropertyModel.of(getModelObject(), "selection.originText"))
+        add(new Label("originText", PropertyModel.of(aModel, "selection.originText"))
                 .add(visibleWhen(() -> isRelationSelected())));
         add(new Label("targetName", LoadableDetachableModel.of(this::getTargetName))
                 .add(visibleWhen(() -> isRelationSelected())));
-        add(new Label("targetText", PropertyModel.of(getModelObject(), "selection.targetText"))
+        add(new Label("targetText", PropertyModel.of(aModel, "selection.targetText"))
                 .add(visibleWhen(() -> isRelationSelected())));
         add(new LambdaAjaxLink("jumpToOrigin", this::actionJumpToOrigin) //
                 .setAlwaysEnabled(true) // avoid disabling in read-only mode
@@ -112,28 +110,24 @@ public class AnnotationTextPanel
         return (AnnotatorState) getDefaultModelObject();
     }
 
-    public AnnotationPageBase getEditorPage()
-    {
-        return (AnnotationPageBase) getPage();
-    }
-
     private void actionJumpToAnnotation(AjaxRequestTarget aTarget)
         throws IOException, AnnotationException
     {
-        actionHandler.actionSelectAndJump(aTarget, getModelObject().getSelection().getAnnotation());
+        owner.activeActionHandler().actionSelectAndJump(aTarget,
+                getModelObject().getSelection().getAnnotation());
     }
 
     private void actionJumpToOrigin(AjaxRequestTarget aTarget)
         throws IOException, AnnotationException
     {
-        actionHandler.actionSelectAndJump(aTarget,
+        owner.activeActionHandler().actionSelectAndJump(aTarget,
                 new VID(getModelObject().getSelection().getOrigin()));
     }
 
     private void actionJumpToTarget(AjaxRequestTarget aTarget)
         throws IOException, AnnotationException
     {
-        actionHandler.actionSelectAndJump(aTarget,
+        owner.activeActionHandler().actionSelectAndJump(aTarget,
                 new VID(getModelObject().getSelection().getTarget()));
     }
 }

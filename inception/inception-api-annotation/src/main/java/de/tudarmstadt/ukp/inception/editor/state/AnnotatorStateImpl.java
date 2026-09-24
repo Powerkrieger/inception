@@ -48,6 +48,7 @@ import de.tudarmstadt.ukp.clarin.webanno.constraints.model.ParsedConstraints;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnchoringMode;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
+import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.LinkMode;
 import de.tudarmstadt.ukp.clarin.webanno.model.Mode;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
@@ -57,7 +58,6 @@ import de.tudarmstadt.ukp.clarin.webanno.model.Tag;
 import de.tudarmstadt.ukp.clarin.webanno.model.TagSet;
 import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
-import de.tudarmstadt.ukp.inception.project.api.ProjectService;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnchoringModePrefs;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationPreference;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
@@ -370,14 +370,6 @@ public class AnnotatorStateImpl
     }
 
     @Override
-    public void refreshProject(ProjectService aProjectService)
-    {
-        if (project != null) {
-            project = aProjectService.getProject(project.getId());
-        }
-    }
-
-    @Override
     public User getUser()
     {
         return user;
@@ -387,6 +379,16 @@ public class AnnotatorStateImpl
     public void setUser(User aUser)
     {
         user = aUser;
+    }
+
+    @Override
+    public AnnotationSet getDataOwner()
+    {
+        if (user == null) {
+            return null;
+        }
+
+        return AnnotationSet.forUser(user);
     }
 
     /**
@@ -711,6 +713,8 @@ public class AnnotatorStateImpl
     @Override
     public void reset()
     {
+        annotationDocumentTimestamp = null;
+
         clearSelection();
         clearArmedSlot();
         clearRememberedFeatures();
@@ -720,7 +724,6 @@ public class AnnotatorStateImpl
         unitCount = 0;
         windowBeginOffset = 0;
         windowEndOffset = 0;
-        annotationDocumentTimestamp = null;
 
         fireViewStateChanged();
     }
@@ -825,6 +828,12 @@ public class AnnotatorStateImpl
     public void setAnnotationDocumentTimestamp(long aAnnotationDocumentTimestamp)
     {
         annotationDocumentTimestamp = aAnnotationDocumentTimestamp;
+    }
+
+    @Override
+    public void clearAnnotationDocumentTimestamp()
+    {
+        annotationDocumentTimestamp = null;
     }
 
     @Override

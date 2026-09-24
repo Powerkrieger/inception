@@ -21,6 +21,8 @@ import static de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.CasDiff.doDiff;
 import static de.tudarmstadt.ukp.clarin.webanno.model.MultiValueMode.NONE;
 import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.selectAnnotationByAddr;
 import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.selectFsByAddr;
+import static java.lang.Math.max;
+import static java.lang.Math.min;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.stream.Collectors.joining;
@@ -42,7 +44,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.exception.NotEditableException;
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
 import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.CasDiff;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
@@ -51,6 +52,7 @@ import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
 import de.tudarmstadt.ukp.inception.annotation.layer.document.api.DocumentMetadataLayerSupport;
+import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationAdapter;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationLayerSupport;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanLayerSupport;
 import de.tudarmstadt.ukp.inception.curation.api.CurationSessionService;
@@ -62,14 +64,15 @@ import de.tudarmstadt.ukp.inception.diam.editor.actions.SelectAnnotationHandler;
 import de.tudarmstadt.ukp.inception.diam.editor.lazydetails.LazyDetailsLookupService;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.editor.AnnotationEditorExtensionImplBase;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
 import de.tudarmstadt.ukp.inception.rendering.selection.Selection;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VLazyDetail;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VLazyDetailGroup;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupportRegistry;
 import de.tudarmstadt.ukp.inception.ui.curation.sidebar.config.CurationSidebarAutoConfiguration;
 
@@ -122,8 +125,8 @@ public class CurationEditorExtension
     }
 
     @Override
-    public void handleAction(AnnotationActionHandler aActionHandler, AnnotatorState aState,
-            AjaxRequestTarget aTarget, CAS aCas, VID aParamId, String aAction)
+    public void handleAction(DiamContext aContext, AjaxRequestTarget aTarget, VID aParamId,
+            String aAction)
         throws AnnotationException, IOException
     {
         // only process actions relevant to curation
@@ -136,7 +139,8 @@ public class CurationEditorExtension
             return;
         }
 
-        var doc = aState.getDocument();
+        var state = aContext.getAnnotatorState();
+        var doc = state.getDocument();
         var srcUser = curationVid.getUsername();
 
         if (!documentService.existsAnnotationDocument(doc, AnnotationSet.forUser(srcUser))) {
@@ -145,16 +149,15 @@ public class CurationEditorExtension
         }
 
         if (SelectAnnotationHandler.COMMAND.equals(aAction)) {
-            actionCurationSuggestionSelected(aActionHandler, aState, aTarget, aCas, aAction,
-                    curationVid);
+            actionCurationSuggestionSelected(aContext, aTarget, aAction, curationVid);
         }
         else if (ScrollToHandler.COMMAND.equals(aAction)) {
-            actionJumpTo(aActionHandler, aTarget, curationVid, doc, srcUser);
+            actionJumpTo(aContext.getActionHandler(), state, aTarget, curationVid, doc, srcUser);
         }
     }
 
-    private void actionJumpTo(AnnotationActionHandler aActionHandler, AjaxRequestTarget aTarget,
-            CurationVID curationVid, SourceDocument doc, String srcUser)
+    private void actionJumpTo(AnnotationActionHandler aActionHandler, AnnotatorState aState,
+            AjaxRequestTarget aTarget, CurationVID curationVid, SourceDocument doc, String srcUser)
         throws IOException, AnnotationException
     {
         // get user CAS and annotation (to be merged into curator's)
@@ -163,24 +166,38 @@ public class CurationEditorExtension
         var srcCas = documentService.readAnnotationCas(doc, AnnotationSet.forUser(srcUser));
         var sourceAnnotation = selectAnnotationByAddr(srcCas, vid.getId());
 
+        var layer = annotationService.findLayer(aState.getProject(), sourceAnnotation);
+
+        if (RelationLayerSupport.TYPE.equals(layer.getType())
+                && annotationService.getAdapter(layer) instanceof RelationAdapter relationAdapter) {
+            var source = relationAdapter.getSourceAnnotation(sourceAnnotation);
+            var target = relationAdapter.getTargetAnnotation(sourceAnnotation);
+
+            if (source != null && target != null) {
+                aActionHandler.actionJump(aTarget, min(source.getBegin(), target.getBegin()),
+                        max(source.getEnd(), target.getEnd()));
+                return;
+            }
+        }
+
         aActionHandler.actionJump(aTarget, sourceAnnotation.getBegin(), sourceAnnotation.getEnd());
     }
 
-    private void actionCurationSuggestionSelected(AnnotationActionHandler aActionHandler,
-            AnnotatorState aState, AjaxRequestTarget aTarget, CAS aCas, String aAction,
-            CurationVID curationVid)
+    private void actionCurationSuggestionSelected(DiamContext aContext, AjaxRequestTarget aTarget,
+            String aAction, CurationVID curationVid)
         throws NotEditableException, IOException, AnnotationException
     {
-        if (curationSidebarService.isCurationFinished(aState,
-                userRepository.getCurrentUsername())) {
+        var state = aContext.getAnnotatorState();
+
+        if (curationSidebarService.isCurationFinished(state)) {
             throw new NotEditableException("Curation is already finished. You can put it back "
                     + "into progress via the monitoring page.");
         }
 
-        var page = (AnnotationPageBase) aTarget.getPage();
-        page.ensureIsEditable();
+        aContext.getActionHandler().ensureIsEditable();
 
-        mergeAnnotation(aAction, aActionHandler, aState, aTarget, aCas, curationVid);
+        mergeAnnotation(aAction, aContext.getActionHandler(), state, aTarget,
+                aContext.getEditorCas(), curationVid);
     }
 
     @Override
@@ -241,7 +258,7 @@ public class CurationEditorExtension
             mergeSpan(aState, aTargetCas, vid, srcUser, sourceAnnotation, layer);
         }
 
-        aActionHandler.actionSelect(aTarget);
+        aActionHandler.actionLoadSelectedAnnotationDetails(aTarget);
         aActionHandler.writeEditorCas();
     }
 

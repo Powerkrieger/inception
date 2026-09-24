@@ -41,9 +41,9 @@ import org.apache.wicket.model.Model;
 import org.apache.wicket.model.util.ListModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
+import de.agilecoders.wicket.core.markup.html.bootstrap.image.IconType;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.preferences.UserPreferencesService;
-import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.Tag;
@@ -51,7 +51,6 @@ import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
 import de.tudarmstadt.ukp.inception.bootstrap.IconToggleBox;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import de.tudarmstadt.ukp.inception.schema.api.config.AnnotationSchemaProperties;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxFormComponentUpdatingBehavior;
@@ -60,9 +59,9 @@ import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
 public class LayerVisibilitySidebar
     extends AnnotationSidebar_ImplBase
 {
-    private static final FontAwesome5IconType ICON_HIDDEN = FontAwesome5IconType.eye_slash_r;
-    private static final FontAwesome5IconType ICON_VISIBLE = FontAwesome5IconType.eye_r;
-    private static final FontAwesome5IconType ICON_PARTIALLY_VISIBLE = FontAwesome5IconType.low_vision_s;
+    private static final IconType ICON_HIDDEN = FontAwesome7IconType.eye_slash_r;
+    private static final IconType ICON_VISIBLE = FontAwesome7IconType.eye_r;
+    private static final IconType ICON_PARTIALLY_VISIBLE = FontAwesome7IconType.low_vision_s;
 
     private static final long serialVersionUID = 6127948490101336779L;
 
@@ -73,10 +72,9 @@ public class LayerVisibilitySidebar
 
     private Map<AnnotationLayer, Boolean> layerCollapseState = new HashMap<>();
 
-    public LayerVisibilitySidebar(String aId, AnnotationActionHandler aActionHandler,
-            CasProvider aCasProvider, AnnotationPageBase2 aAnnotationPage)
+    public LayerVisibilitySidebar(String aId, AnnotationPageBase2 aAnnotationPage)
     {
-        super(aId, aActionHandler, aCasProvider, aAnnotationPage);
+        super(aId, aAnnotationPage);
 
         add(createLayerContainer("layer", LoadableDetachableModel.of(this::listLayers)));
     }
@@ -160,7 +158,7 @@ public class LayerVisibilitySidebar
         userPreferencesService.savePreferences(getModelObject(), sessionOwner);
         userPreferencesService.loadPreferences(getModelObject(), sessionOwner);
 
-        getAnnotationPage().actionRefreshDocument(aTarget);
+        getActiveContext().orElseThrow().actionRefreshDocument(aTarget);
     }
 
     private List<Tag> listSelectableTags(AnnotationFeature aFeature)

@@ -33,11 +33,12 @@ import de.tudarmstadt.ukp.inception.apacheannotatoreditor.resources.ApacheAnnota
 import de.tudarmstadt.ukp.inception.apacheannotatoreditor.resources.ApacheAnnotatorJsJavascriptResourceReference;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.editor.AnnotationEditorFactory;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.editor.view.DocumentViewFactory;
 import de.tudarmstadt.ukp.inception.externaleditor.ExternalAnnotationEditorBase;
 import de.tudarmstadt.ukp.inception.externaleditor.model.AnnotationEditorProperties;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import jakarta.servlet.ServletContext;
 
 public class ApacheAnnotatorHtmlAnnotationEditor
@@ -52,10 +53,10 @@ public class ApacheAnnotatorHtmlAnnotationEditor
     private @SpringBean DocumentImportExportService documentImportExportService;
 
     public ApacheAnnotatorHtmlAnnotationEditor(String aId, IModel<AnnotatorState> aModel,
-            AnnotationActionHandler aActionHandler, CasProvider aCasProvider,
-            String aEditorFactoryId)
+            DocumentEditorManager aManager, AnnotationActionHandler aActionHandler,
+            CasProvider aCasProvider, String aEditorFactoryId)
     {
-        super(aId, aModel, aActionHandler, aCasProvider, aEditorFactoryId);
+        super(aId, aModel, aManager, aActionHandler, aCasProvider, aEditorFactoryId);
     }
 
     @Override

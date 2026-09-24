@@ -30,7 +30,6 @@ import org.apache.wicket.spring.injection.annot.SpringBean;
 import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.editor.AnnotationEditorExtensionRegistry;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.editor.view.DocumentViewFactory;
 import de.tudarmstadt.ukp.inception.externaleditor.ExternalAnnotationEditorBase;
 import de.tudarmstadt.ukp.inception.externaleditor.model.AnnotationEditorProperties;
@@ -39,7 +38,9 @@ import de.tudarmstadt.ukp.inception.pdfeditor2.resources.PdfAnnotationEditorCssR
 import de.tudarmstadt.ukp.inception.pdfeditor2.resources.PdfAnnotationEditorJavascriptResourceReference;
 import de.tudarmstadt.ukp.inception.pdfeditor2.view.PdfDocumentIFrameView;
 import de.tudarmstadt.ukp.inception.rendering.coloring.ColoringService;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import jakarta.servlet.ServletContext;
 
@@ -60,10 +61,10 @@ public class PdfAnnotationEditor
     private @SpringBean ServletContext servletContext;
 
     public PdfAnnotationEditor(String aId, IModel<AnnotatorState> aModel,
-            AnnotationActionHandler aActionHandler, CasProvider aCasProvider,
-            String aEditorFactoryId)
+            DocumentEditorManager aManager, AnnotationActionHandler aActionHandler,
+            CasProvider aCasProvider, String aEditorFactoryId)
     {
-        super(aId, aModel, aActionHandler, aCasProvider, aEditorFactoryId);
+        super(aId, aModel, aManager, aActionHandler, aCasProvider, aEditorFactoryId);
     }
 
     @Override

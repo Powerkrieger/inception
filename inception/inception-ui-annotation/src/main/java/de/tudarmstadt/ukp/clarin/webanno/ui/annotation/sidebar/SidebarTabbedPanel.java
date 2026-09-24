@@ -17,8 +17,8 @@
  */
 package de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar;
 
-import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType.chevron_left_s;
-import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType.chevron_right_s;
+import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType.chevron_left_s;
+import static de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType.chevron_right_s;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.apache.wicket.event.Broadcast.BUBBLE;
 
@@ -28,18 +28,23 @@ import java.util.Optional;
 import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.Component;
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.extensions.ajax.markup.html.tabs.AjaxTabbedPanel;
 import org.apache.wicket.extensions.markup.html.tabs.TabbedPanel;
 import org.apache.wicket.markup.html.WebMarkupContainer;
+import org.apache.wicket.markup.html.list.ListItem;
+import org.apache.wicket.markup.html.list.ListView;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
+import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.inception.preferences.PreferenceKey;
 import de.tudarmstadt.ukp.inception.preferences.PreferencesService;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorViewState;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
 
 public class SidebarTabbedPanel<T extends SidebarTab>
@@ -54,14 +59,18 @@ public class SidebarTabbedPanel<T extends SidebarTab>
 
     private @SpringBean UserDao userService;
     private @SpringBean PreferencesService prefService;
+    private @SpringBean SidebarFooterItemRegistry footerItemRegistry;
 
     private IModel<AnnotatorState> state;
+    private AnnotationPageBase2 annotationPage;
 
-    public SidebarTabbedPanel(String aId, List<T> aTabs, IModel<AnnotatorState> aState)
+    public SidebarTabbedPanel(String aId, List<T> aTabs, AnnotationPageBase2 aAnnotationPage,
+            IModel<AnnotatorState> aState)
     {
         super(aId, aTabs);
 
         state = aState;
+        annotationPage = aAnnotationPage;
 
         setOutputMarkupPlaceholderTag(true);
         setOutputMarkupId(true);
@@ -71,15 +80,56 @@ public class SidebarTabbedPanel<T extends SidebarTab>
 
         showHideLink.add(new Icon("showHideIcon",
                 LoadableDetachableModel.of(() -> isExpanded() ? chevron_left_s : chevron_right_s)));
-        ((WebMarkupContainer) get("tabs-container")).add(showHideLink);
+
+        var tabsContainer = (WebMarkupContainer) get("tabs-container");
+        tabsContainer.add(showHideLink);
+        tabsContainer.add(makeFooterItems());
 
         loadSidebarState();
+    }
+
+    private ListView<SidebarFooterItemFactory> makeFooterItems()
+    {
+        var factories = new LoadableDetachableModel<List<SidebarFooterItemFactory>>()
+        {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected List<SidebarFooterItemFactory> load()
+            {
+                return footerItemRegistry.getExtensions(annotationPage);
+            }
+        };
+
+        return new ListView<SidebarFooterItemFactory>("footerItems", factories)
+        {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected void populateItem(ListItem<SidebarFooterItemFactory> aItem)
+            {
+                var li = new WebMarkupContainer("footerItemContainer");
+
+                // Push the footer group away from the tabs above it. Only the first item carries
+                // the margin - putting it on every item would space them apart from each other.
+                if (aItem.getIndex() == 0) {
+                    li.add(new AttributeAppender("class", "mt-auto", " "));
+                }
+
+                li.add(aItem.getModelObject().create("footerItem", annotationPage));
+                aItem.add(li);
+            }
+        };
     }
 
     private void showHideAction(AjaxRequestTarget aTarget)
     {
         expanded = !expanded;
         saveSidebarState();
+
+        // Hide immediately so that listeners of SidebarStateChangedEvent can check visibility
+        get("panel").setVisible(expanded);
+
         send(this, BUBBLE, new SidebarStateChangedEvent(aTarget, SidebarStateChangedEvent.Side.LEFT,
                 !expanded));
     }
@@ -100,6 +150,7 @@ public class SidebarTabbedPanel<T extends SidebarTab>
     protected void onAjaxUpdate(Optional<AjaxRequestTarget> aTarget)
     {
         super.onAjaxUpdate(aTarget);
+
         if (!expanded) {
             expanded = true;
             saveSidebarState();
@@ -112,6 +163,10 @@ public class SidebarTabbedPanel<T extends SidebarTab>
                 send(this, BUBBLE, new SidebarStateChangedEvent(_target,
                         SidebarStateChangedEvent.Side.LEFT, false));
             });
+        }
+        else {
+            aTarget.ifPresent(_target -> send(this, BUBBLE,
+                    new SidebarTabSelectedEvent(_target, SidebarStateChangedEvent.Side.LEFT)));
         }
     }
 
@@ -152,7 +207,7 @@ public class SidebarTabbedPanel<T extends SidebarTab>
     protected Component newTitle(String aTitleId, IModel<?> aTitleModel, int aIndex)
     {
         var tab = getTabs().get(aIndex);
-        var icon = tab.getIcon("icon", state);
+        var icon = tab.getIcon("icon", state.map(AnnotatorViewState.class::cast));
         icon.add(new AttributeModifier("title", aTitleModel));
         return icon;
     }

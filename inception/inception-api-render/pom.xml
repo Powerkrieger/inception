@@ -62,14 +62,13 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
-      <groupId>de.tudarmstadt.ukp.inception.app</groupId>
-      <artifactId>inception-project-api</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-
-    <dependency>
       <groupId>org.apache.uima</groupId>
       <artifactId>uimaj-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.uima</groupId>
+      <artifactId>uimafit-core</artifactId>
+      <scope>test</scope>
     </dependency>
 
     <dependency>
@@ -99,5 +98,6 @@
    <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-annotations</artifactId>
-    </dependency>  </dependencies>
+    </dependency>
+  </dependencies>
 </project>

@@ -33,7 +33,6 @@ import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.markup.head.IHeaderResponse;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.model.IModel;
-import org.apache.wicket.request.Request;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 import org.springframework.core.annotation.Order;
 
@@ -47,16 +46,18 @@ import de.tudarmstadt.ukp.clarin.webanno.brat.resource.BratCssReference;
 import de.tudarmstadt.ukp.clarin.webanno.brat.resource.BratResourceReference;
 import de.tudarmstadt.ukp.clarin.webanno.brat.schema.BratSchemaGenerator;
 import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
+import de.tudarmstadt.ukp.inception.diam.editor.DiamRequest;
 import de.tudarmstadt.ukp.inception.diam.editor.actions.EditorAjaxRequestHandlerBase;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.AjaxResponse;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.DefaultAjaxResponse;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.externaleditor.ExternalAnnotationEditorBase;
 import de.tudarmstadt.ukp.inception.externaleditor.command.EditorCommand;
 import de.tudarmstadt.ukp.inception.externaleditor.command.LoadAnnotationsCommand;
 import de.tudarmstadt.ukp.inception.externaleditor.command.QueuedEditorCommandsMetaDataKey;
 import de.tudarmstadt.ukp.inception.externaleditor.model.AnnotationEditorProperties;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import jakarta.servlet.ServletContext;
 
 /**
@@ -81,14 +82,20 @@ public class BratAnnotationEditor
     private DifferentialRenderingSupport diffRenderSupport;
 
     public BratAnnotationEditor(String id, IModel<AnnotatorState> aModel,
-            final AnnotationActionHandler aActionHandler, final CasProvider aCasProvider,
-            String aEditorFactoryId)
+            final DocumentEditorManager aManager, final AnnotationActionHandler aActionHandler,
+            final CasProvider aCasProvider, String aEditorFactoryId)
     {
-        super(id, aModel, aActionHandler, aCasProvider, aEditorFactoryId);
+        super(id, aModel, aManager, aActionHandler, aCasProvider, aEditorFactoryId);
 
         add(visibleWhen(getModel().map(AnnotatorState::getProject).isPresent()));
 
         diffRenderSupport = new DifferentialRenderingSupport(metrics);
+    }
+
+    @Override
+    public IModel<AnnotatorState> getStateModel()
+    {
+        return getModel();
     }
 
     @Override
@@ -228,8 +235,7 @@ public class BratAnnotationEditor
         }
 
         @Override
-        public AjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-                Request aRequest)
+        public AjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
         {
             try {
                 var cas = getCasProvider().get();
