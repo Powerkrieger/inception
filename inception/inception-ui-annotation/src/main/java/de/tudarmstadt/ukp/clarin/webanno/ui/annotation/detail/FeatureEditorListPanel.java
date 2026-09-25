@@ -35,12 +35,14 @@ import java.util.function.Function;
 
 import org.apache.uima.cas.CAS;
 import org.apache.uima.cas.FeatureStructure;
+import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.Component;
 import org.apache.wicket.MetaDataKey;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.ajax.form.AjaxFormComponentUpdatingBehavior;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.markup.html.WebMarkupContainer;
+import org.apache.wicket.markup.html.form.AbstractTextComponent;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.markup.repeater.Item;
 import org.apache.wicket.markup.repeater.RefreshingView;
@@ -52,6 +54,7 @@ import org.apache.wicket.spring.injection.annot.SpringBean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wicketstuff.event.annotation.OnEvent;
+import org.wicketstuff.jquery.core.IJQueryWidget;
 import org.wicketstuff.kendo.ui.form.TextField;
 
 import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfEvaluator;
@@ -176,6 +179,12 @@ public class FeatureEditorListPanel
     {
         var target = aEvent.getTarget();
         try {
+            if (owner.isReadOnlyView()) {
+                // The change cannot be committed (see below), so revert the editors to the stored
+                // values instead of leaving them showing a value that was never saved
+                owner.actionLoadSelectionDetails(target);
+            }
+
             actionFeatureUpdate(aEvent.getEditor(), target);
         }
         catch (Exception e) {
@@ -271,7 +280,10 @@ public class FeatureEditorListPanel
             editor.getFocusComponent()
                     .add(AttributeAppender.replace("tabindex", aItem.getIndex() + 1));
 
-            if (!featureState.feature.getLayer().isReadonly()) {
+            if (editorPanel.isReadOnlyView()) {
+                makeReadOnly(editor.getFocusComponent());
+            }
+            else if (!featureState.feature.getLayer().isReadonly()) {
                 var state = getModelObject();
 
                 // Whenever it is updating an annotation, it updates automatically when a
@@ -316,6 +328,23 @@ public class FeatureEditorListPanel
             }
 
             aItem.add(editor);
+        }
+
+        /**
+         * Plain text inputs are only marked as read-only instead of being disabled so that their
+         * value can still be selected and copied. Other inputs (e.g. JS widgets, choices) do not
+         * honor the read-only attribute and are disabled instead. Only the input is affected -
+         * links elsewhere in the editor (e.g. to open a concept) remain usable.
+         */
+        private void makeReadOnly(Component aComponent)
+        {
+            if (aComponent instanceof AbstractTextComponent
+                    && !(aComponent instanceof IJQueryWidget)) {
+                aComponent.add(AttributeModifier.replace("readonly", "readonly"));
+            }
+            else {
+                aComponent.setEnabled(false);
+            }
         }
 
         @Override

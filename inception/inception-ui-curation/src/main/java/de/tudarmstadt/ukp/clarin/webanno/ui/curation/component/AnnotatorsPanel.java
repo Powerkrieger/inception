@@ -109,6 +109,7 @@ public class AnnotatorsPanel
     private static final String ACTION_CONTEXT_MENU = "contextMenu";
     private static final String ACTION_SELECT_ARC_FOR_MERGE = "selectArcForMerge";
     private static final String ACTION_SELECT_SPAN_FOR_MERGE = "selectSpanForMerge";
+    private static final String ACTION_INSPECT = "inspect";
 
     private static final long serialVersionUID = 8736268179612831795L;
 
@@ -152,7 +153,7 @@ public class AnnotatorsPanel
                     @Override
                     protected void onClientEvent(AjaxRequestTarget aTarget) throws Exception
                     {
-                        AnnotatorsPanel.this.onClientEvent(aTarget, annotatorSegment);
+                        AnnotatorsPanel.this.onClientEvent(aTarget, annotatorSegment, this);
                     }
                 };
                 curationVisualizer.setOutputMarkupId(true);
@@ -165,19 +166,28 @@ public class AnnotatorsPanel
 
     /**
      * Method is called, if user has clicked on a span or an arc in the sentence panel. The span or
-     * arc respectively is identified and copied to the merge CAS.
+     * arc respectively is identified and copied to the merge CAS - unless the user only wants to
+     * inspect it, in which case it is shown in the annotation detail panel instead.
      */
-    protected void onClientEvent(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment)
+    protected void onClientEvent(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment,
+            BratSuggestionVisualizer aVisualizer)
         throws UIMAException, IOException, AnnotationException
     {
+        var request = getRequest().getPostParameters();
+        var action = request.getParameterValue(PARAM_ACTION);
+
+        // Inspecting does not change anything, so it remains possible on finished documents
+        if (ACTION_INSPECT.equals(action.toString())) {
+            aVisualizer.actionInspect(aTarget,
+                    VID.parse(request.getParameterValue(PARAM_ID).toString()));
+            return;
+        }
+
         if (isDocumentFinished(documentService, aSegment.getAnnotatorState())) {
             error("This document is already closed. Please ask the project manager to re-open it.");
             aTarget.addChildren(getPage(), IFeedback.class);
             return;
         }
-
-        var request = getRequest().getPostParameters();
-        var action = request.getParameterValue(PARAM_ACTION);
 
         if (!action.isEmpty()) {
             var type = removePrefix(request.getParameterValue(PARAM_TYPE).toString());
@@ -211,20 +221,21 @@ public class AnnotatorsPanel
 
             // check if clicked on a span
             var casMerge = new CasMerge(schemaService, applicationEventPublisher.get());
+            CasMergeOperationResult result = null;
             if (ACTION_SELECT_SPAN_FOR_MERGE.equals(action.toString())) {
-                mergeSpan(casMerge, targetCas, sourceCas, sourceVid, sourceState.getDocument(),
-                        sourceState.getUser().getUsername(), layer);
+                result = mergeSpan(casMerge, targetCas, sourceCas, sourceVid,
+                        sourceState.getDocument(), sourceState.getUser().getUsername(), layer);
             }
             // check if clicked on an arc (relation or slot)
             else if (ACTION_SELECT_ARC_FOR_MERGE.equals(action.toString())) {
                 // this is a slot arc
                 if (sourceVid.isSlotSet()) {
-                    mergeSlot(casMerge, targetCas, sourceCas, sourceVid, sourceState.getDocument(),
-                            sourceState.getUser().getUsername(), layer);
+                    result = mergeSlot(casMerge, targetCas, sourceCas, sourceVid,
+                            sourceState.getDocument(), sourceState.getUser().getUsername(), layer);
                 }
                 // normal relation annotation arc is clicked
                 else {
-                    mergeRelation(casMerge, targetCas, sourceCas, sourceVid,
+                    result = mergeRelation(casMerge, targetCas, sourceCas, sourceVid,
                             sourceState.getDocument(), sourceState.getUser().getUsername(), layer);
                 }
             }
@@ -238,7 +249,43 @@ public class AnnotatorsPanel
                 sourceState.getPagingStrategy().moveToOffset(sourceState, targetCas,
                         sourceAnnotation.getBegin(), CENTERED);
             }
+
+            selectMergedAnnotation(aTarget, sourceState, result);
         }
+    }
+
+    /**
+     * Select the merged annotation in the curator's editor, so that it can be edited right away.
+     * This also hands the detail panel back to the curator's editor if it was showing an annotation
+     * of one of the annotators.
+     */
+    private void selectMergedAnnotation(AjaxRequestTarget aTarget, AnnotatorState aState,
+            CasMergeOperationResult aResult)
+        throws IOException, AnnotationException
+    {
+        var curatorContext = manager.findEditorFor(aState.getDocument(), aState.getDataOwner());
+        if (aResult == null || curatorContext.isEmpty()) {
+            endInspection(aTarget, aState);
+            return;
+        }
+
+        curatorContext.get().getActionHandler().actionSelect(aTarget,
+                new VID(aResult.targetAddress()));
+    }
+
+    /**
+     * If the detail panel is showing an annotation of one of the annotators, hand it back to the
+     * curator's editor.
+     */
+    private void endInspection(AjaxRequestTarget aTarget, AnnotatorState aState)
+    {
+        if (manager.getActiveContext().filter(BratSuggestionVisualizer::isInspectionContext)
+                .isEmpty()) {
+            return;
+        }
+
+        manager.setActiveContext(aTarget,
+                manager.findEditorFor(aState.getDocument(), aState.getDataOwner()).orElse(null));
     }
 
     private void actionAcceptAll(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment,
@@ -343,8 +390,9 @@ public class AnnotatorsPanel
                 sourceAnnotation);
     }
 
-    private void mergeSlot(CasMerge aCasMerge, CAS aCas, CAS aSourceCas, VID aSourceVid,
-            SourceDocument aSourceDocument, String aSourceUser, AnnotationLayer aLayer)
+    private CasMergeOperationResult mergeSlot(CasMerge aCasMerge, CAS aCas, CAS aSourceCas,
+            VID aSourceVid, SourceDocument aSourceDocument, String aSourceUser,
+            AnnotationLayer aLayer)
         throws AnnotationException, IOException
     {
         AnnotationFS sourceAnnotation = ICasUtil.selectAnnotationByAddr(aSourceCas,
@@ -354,8 +402,8 @@ public class AnnotatorsPanel
         AnnotationFeature feature = adapter.listFeatures().stream().sequential()
                 .skip(aSourceVid.getAttribute()).findFirst().get();
 
-        aCasMerge.mergeSlotFeature(aSourceDocument, aSourceUser, aLayer, aCas, sourceAnnotation,
-                feature.getName(), aSourceVid.getSlot());
+        return aCasMerge.mergeSlotFeature(aSourceDocument, aSourceUser, aLayer, aCas,
+                sourceAnnotation, feature.getName(), aSourceVid.getSlot());
     }
 
     private CasMergeOperationResult mergeRelation(CasMerge aCasMerge, CAS aCas, CAS aSourceCas,
@@ -406,6 +454,9 @@ public class AnnotatorsPanel
     @SuppressWarnings("javadoc")
     public void init(AjaxRequestTarget aTarget, AnnotatorState aState) throws IOException
     {
+        // The annotator viewers are rebuilt below, so an inspection must not outlive them
+        endInspection(aTarget, aState);
+
         if (aState.getDocument() == null) {
             return;
         }

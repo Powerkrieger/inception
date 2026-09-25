@@ -71,7 +71,8 @@ public class RadioGroupStringFeatureEditor
         var feat = getModelObject().feature;
         traits = readFeatureTraits(feat);
 
-        add(new LambdaAjaxLink("clear", this::actionClear));
+        add(new LambdaAjaxLink("clear", this::actionClear) //
+                .add(visibleWhen(() -> aHandler == null || aHandler.isEditable())));
 
         var emptyTagsetWarning = new WebMarkupContainer("emptyTagsetWarning");
         emptyTagsetWarning.setOutputMarkupPlaceholderTag(true);

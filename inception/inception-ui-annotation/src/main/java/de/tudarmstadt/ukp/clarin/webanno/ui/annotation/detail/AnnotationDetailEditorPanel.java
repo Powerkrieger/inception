@@ -315,6 +315,20 @@ public class AnnotationDetailEditorPanel
                 .orElse(false);
     }
 
+    /**
+     * @return whether an annotation is selected in an editor that is a permanently read-only viewer
+     *         (as opposed to an editor that is merely not editable at the moment, e.g. because the
+     *         document is finished).
+     */
+    boolean isReadOnlyView()
+    {
+        return editorPage.getActiveContext() //
+                .filter(context -> !context.isEditor()) //
+                .map(DiamContext::getAnnotatorState) //
+                .map(state -> state.getSelection().getAnnotation().isSet()) //
+                .orElse(false);
+    }
+
     AnnotationActionHandler activeActionHandler()
     {
         return editorPage.getActiveContext().orElseThrow().getActionHandler();
@@ -673,7 +687,10 @@ public class AnnotationDetailEditorPanel
                 .map(AnnotationLayer::isReadonly) //
                 .orElse(true) //
                 .getObject();
-        setEnabled(isActiveEditorEditable() && !selectedLayerIsReadOnly);
+        // A read-only view stays enabled so that links in the feature editors remain followable -
+        // the feature editors make their inputs read-only instead, editing controls are hidden,
+        // and the viewer's action handler rejects any mutation anyway
+        setEnabled(isReadOnlyView() || (isActiveEditorEditable() && !selectedLayerIsReadOnly));
     }
 
     @Override
