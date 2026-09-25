@@ -221,28 +221,26 @@ public class AnnotatorsPanel
 
             // check if clicked on a span
             var casMerge = new CasMerge(schemaService, applicationEventPublisher.get());
+            CasMergeOperationResult result = null;
             if (ACTION_SELECT_SPAN_FOR_MERGE.equals(action.toString())) {
-                mergeSpan(casMerge, targetCas, sourceCas, sourceVid, sourceState.getDocument(),
-                        sourceState.getUser().getUsername(), layer);
+                result = mergeSpan(casMerge, targetCas, sourceCas, sourceVid,
+                        sourceState.getDocument(), sourceState.getUser().getUsername(), layer);
             }
             // check if clicked on an arc (relation or slot)
             else if (ACTION_SELECT_ARC_FOR_MERGE.equals(action.toString())) {
                 // this is a slot arc
                 if (sourceVid.isSlotSet()) {
-                    mergeSlot(casMerge, targetCas, sourceCas, sourceVid, sourceState.getDocument(),
-                            sourceState.getUser().getUsername(), layer);
+                    result = mergeSlot(casMerge, targetCas, sourceCas, sourceVid,
+                            sourceState.getDocument(), sourceState.getUser().getUsername(), layer);
                 }
                 // normal relation annotation arc is clicked
                 else {
-                    mergeRelation(casMerge, targetCas, sourceCas, sourceVid,
+                    result = mergeRelation(casMerge, targetCas, sourceCas, sourceVid,
                             sourceState.getDocument(), sourceState.getUser().getUsername(), layer);
                 }
             }
 
             writeEditorCas(sourceState, targetCas);
-
-            // Show the merged annotation rather than the one of the annotator being inspected
-            endInspection(aTarget, sourceState);
 
             AnnotationFS sourceAnnotation = ICasUtil.selectAnnotationByAddr(sourceCas,
                     sourceVid.getId());
@@ -251,7 +249,28 @@ public class AnnotatorsPanel
                 sourceState.getPagingStrategy().moveToOffset(sourceState, targetCas,
                         sourceAnnotation.getBegin(), CENTERED);
             }
+
+            selectMergedAnnotation(aTarget, sourceState, result);
         }
+    }
+
+    /**
+     * Select the merged annotation in the curator's editor, so that it can be edited right away.
+     * This also hands the detail panel back to the curator's editor if it was showing an annotation
+     * of one of the annotators.
+     */
+    private void selectMergedAnnotation(AjaxRequestTarget aTarget, AnnotatorState aState,
+            CasMergeOperationResult aResult)
+        throws IOException, AnnotationException
+    {
+        var curatorContext = manager.findEditorFor(aState.getDocument(), aState.getDataOwner());
+        if (aResult == null || curatorContext.isEmpty()) {
+            endInspection(aTarget, aState);
+            return;
+        }
+
+        curatorContext.get().getActionHandler().actionSelect(aTarget,
+                new VID(aResult.targetAddress()));
     }
 
     /**
@@ -371,8 +390,9 @@ public class AnnotatorsPanel
                 sourceAnnotation);
     }
 
-    private void mergeSlot(CasMerge aCasMerge, CAS aCas, CAS aSourceCas, VID aSourceVid,
-            SourceDocument aSourceDocument, String aSourceUser, AnnotationLayer aLayer)
+    private CasMergeOperationResult mergeSlot(CasMerge aCasMerge, CAS aCas, CAS aSourceCas,
+            VID aSourceVid, SourceDocument aSourceDocument, String aSourceUser,
+            AnnotationLayer aLayer)
         throws AnnotationException, IOException
     {
         AnnotationFS sourceAnnotation = ICasUtil.selectAnnotationByAddr(aSourceCas,
@@ -382,8 +402,8 @@ public class AnnotatorsPanel
         AnnotationFeature feature = adapter.listFeatures().stream().sequential()
                 .skip(aSourceVid.getAttribute()).findFirst().get();
 
-        aCasMerge.mergeSlotFeature(aSourceDocument, aSourceUser, aLayer, aCas, sourceAnnotation,
-                feature.getName(), aSourceVid.getSlot());
+        return aCasMerge.mergeSlotFeature(aSourceDocument, aSourceUser, aLayer, aCas,
+                sourceAnnotation, feature.getName(), aSourceVid.getSlot());
     }
 
     private CasMergeOperationResult mergeRelation(CasMerge aCasMerge, CAS aCas, CAS aSourceCas,

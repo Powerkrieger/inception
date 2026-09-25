@@ -90,8 +90,8 @@ public class MultiValueConceptFeatureEditor
         dialog.trapFocus();
         queue(dialog);
 
-        queue(new LambdaAjaxLink("openBrowseDialog", this::actionOpenBrowseDialog)
-                .add(visibleWhen(this::isBrowsingAllowed)));
+        queue(new LambdaAjaxLink("openBrowseDialog", this::actionOpenBrowseDialog).add(visibleWhen(
+                () -> (handler == null || handler.isEditable()) && isBrowsingAllowed())));
 
         add(new SuggestionStatePanel("suggestionInfo", aModel));
     }
