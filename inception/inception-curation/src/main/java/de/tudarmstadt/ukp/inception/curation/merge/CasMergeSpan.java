@@ -25,6 +25,7 @@ import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.getAddr;
 import static org.apache.uima.fit.util.CasUtil.selectAt;
 import static org.apache.uima.fit.util.CasUtil.selectCovered;
 
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import org.apache.uima.cas.CAS;
@@ -35,6 +36,7 @@ import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.CreateSpanAnnotationRequest;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanAdapter;
+import de.tudarmstadt.ukp.inception.curation.api.RelationContextFingerprinter;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.TypeAdapter;
@@ -51,7 +53,22 @@ class CasMergeSpan
             adapter.silenceEvents();
         }
 
-        if (existsEquivalentSpan(aTargetCas, adapter, aSourceFs)) {
+        // On layers which distinguish stacked annotations by their relations, several source
+        // annotations with the same label may legitimately be merged at the same position. They are
+        // told apart by their relations and each target annotation is only matched once per merge.
+        var fingerprinter = aContext.getRelationContextFingerprinter(aDocument.getProject());
+        var fingerprint = fingerprinter.fingerprint(aSourceFs);
+
+        if (fingerprint != null) {
+            var equivalent = findEquivalentAnchoredSpan(aContext, fingerprinter, aTargetCas,
+                    adapter, aSourceFs, fingerprint);
+            if (equivalent.isPresent()) {
+                aContext.claim(aSourceFs, fingerprint, equivalent.get());
+                throw new AlreadyMergedException(
+                        "The annotation already exists in the target document.");
+            }
+        }
+        else if (existsEquivalentSpan(aTargetCas, adapter, aSourceFs)) {
             throw new AlreadyMergedException(
                     "The annotation already exists in the target document.");
         }
@@ -72,6 +89,9 @@ class CasMergeSpan
             try {
                 copyFeatures(aContext, aDocument, aDataOwner, adapter, mergedSpan, aSourceFs);
                 mergedSpanAddr = getAddr(mergedSpan);
+                if (fingerprint != null) {
+                    aContext.claim(aSourceFs, fingerprint, mergedSpan);
+                }
             }
             catch (AnnotationException e) {
                 // If there was an error while setting the features, then we skip the entire
@@ -92,6 +112,9 @@ class CasMergeSpan
         else {
             var annoToUpdate = existingAnnos.get(0);
             copyFeatures(aContext, aDocument, aDataOwner, adapter, annoToUpdate, aSourceFs);
+            if (fingerprint != null) {
+                aContext.claim(aSourceFs, fingerprint, annoToUpdate);
+            }
             var mergedSpanAddr = getAddr(annoToUpdate);
             return new CasMergeOperationResult(UPDATED, mergedSpanAddr);
         }
@@ -109,6 +132,23 @@ class CasMergeSpan
                 .at(aOriginal.getBegin(), aOriginal.getEnd()) //
                 .sorted((a, b) -> aAdapter.countNonEqualFeatures(a, b,
                         (fs, f) -> f.getLinkMode() == NONE));
+    }
+
+    private static Optional<Annotation> findEquivalentAnchoredSpan(CasMergeContext aContext,
+            RelationContextFingerprinter aFingerprinter, CAS aTargetCas, TypeAdapter aAdapter,
+            AnnotationFS aOriginal, String aFingerprint)
+    {
+        var targetType = aAdapter.getAnnotationType(aTargetCas);
+        if (targetType.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return aTargetCas.<Annotation> select(targetType.get()) //
+                .at(aOriginal.getBegin(), aOriginal.getEnd()) //
+                .filter(fs -> !aContext.isClaimed(fs)) //
+                .filter(fs -> aAdapter.isEquivalentAnnotation(fs, aOriginal)) //
+                .filter(fs -> aFingerprint.equals(aFingerprinter.fingerprint(fs))) //
+                .findFirst();
     }
 
     private static boolean existsEquivalentSpan(CAS aTargetCas, TypeAdapter aAdapter,

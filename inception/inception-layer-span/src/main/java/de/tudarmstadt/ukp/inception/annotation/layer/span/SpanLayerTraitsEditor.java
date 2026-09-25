@@ -81,6 +81,13 @@ public class SpanLayerTraitsEditor
         showTextInHover.setOutputMarkupPlaceholderTag(true);
         showTextInHover.setModel(PropertyModel.of(getLayerModel(), "showTextInHover"));
         aForm.add(showTextInHover);
+
+        var distinguishStackedByRelations = new CheckBox("distinguishStackedByRelations");
+        distinguishStackedByRelations.setOutputMarkupPlaceholderTag(true);
+        distinguishStackedByRelations
+                .setModel(getTraitsModel().bind("distinguishStackedByRelations"));
+        distinguishStackedByRelations.add(visibleWhen(this::isCrossSentenceModeVisible));
+        aForm.add(distinguishStackedByRelations);
     }
 
     private boolean isColoringRulesVisible()

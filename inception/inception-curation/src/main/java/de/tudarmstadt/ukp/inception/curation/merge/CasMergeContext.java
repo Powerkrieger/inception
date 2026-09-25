@@ -22,8 +22,10 @@ import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.getAddr;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.uima.cas.text.AnnotationFS;
 import org.slf4j.Logger;
@@ -32,10 +34,12 @@ import org.slf4j.LoggerFactory;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 
+import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.RelationContextFingerprinterFactory;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.inception.annotation.feature.link.LinkFeatureTraits;
+import de.tudarmstadt.ukp.inception.curation.api.RelationContextFingerprinter;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.TypeAdapter;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
@@ -64,6 +68,17 @@ public class CasMergeContext
     // never cleared; this is safe because every merge run builds a fresh CasMerge (and thus a fresh
     // CasMergeContext), and SlotId host addresses are only unique within a single target CAS.
     private final Map<SlotId, Boolean> slotFilledBeforeMerge = new HashMap<>();
+
+    private RelationContextFingerprinter relationContextFingerprinter;
+
+    // For span layers which distinguish stacked annotations by their relations: the target
+    // annotations which have already been matched to a source annotation during this merge run (so
+    // that they are not matched again by another stacked source annotation) and the target
+    // annotation each source span position was merged into (so that relations can be attached to
+    // the right one of several stacked target annotations). Like slotFilledBeforeMerge, these are
+    // only valid within a single merge run.
+    private final Set<Integer> claimedTargetAddresses = new HashSet<>();
+    private final Map<AnchorKey, Integer> mergedSpanTargets = new HashMap<>();
 
     public CasMergeContext(AnnotationSchemaService aSchemaService)
     {
@@ -139,6 +154,48 @@ public class CasMergeContext
      * merge run (i.e. within a single target CAS, where the host address is unique).
      */
     private record SlotId(int hostAddress, String featureName) {}
+
+    public RelationContextFingerprinter getRelationContextFingerprinter(Project aProject)
+    {
+        if (relationContextFingerprinter == null) {
+            relationContextFingerprinter = RelationContextFingerprinterFactory.create(schemaService,
+                    aProject);
+        }
+        return relationContextFingerprinter;
+    }
+
+    public boolean isClaimed(AnnotationFS aTargetFs)
+    {
+        return claimedTargetAddresses.contains(getAddr(aTargetFs));
+    }
+
+    /**
+     * Records that the given source span annotation (with the given relation fingerprint) has been
+     * merged into the given target annotation.
+     */
+    public void claim(AnnotationFS aSourceFs, String aFingerprint, AnnotationFS aTargetFs)
+    {
+        claimedTargetAddresses.add(getAddr(aTargetFs));
+        mergedSpanTargets.put(AnchorKey.of(aSourceFs, aFingerprint), getAddr(aTargetFs));
+    }
+
+    /**
+     * @return the address of the target annotation into which a source span annotation at the same
+     *         position and with the given relation fingerprint was merged during this merge run or
+     *         {@code null}.
+     */
+    public Integer getMergedSpanTarget(AnnotationFS aSourceFs, String aFingerprint)
+    {
+        return mergedSpanTargets.get(AnchorKey.of(aSourceFs, aFingerprint));
+    }
+
+    private record AnchorKey(String type, int begin, int end, String fingerprint) {
+        static AnchorKey of(AnnotationFS aFs, String aFingerprint)
+        {
+            return new AnchorKey(aFs.getType().getName(), aFs.getBegin(), aFs.getEnd(),
+                    aFingerprint);
+        }
+    }
 
     public List<AnnotationFeature> listSupportedFeatures(AnnotationLayer aLayer)
     {

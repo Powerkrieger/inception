@@ -19,6 +19,7 @@ package de.tudarmstadt.ukp.inception.annotation.layer.span.api;
 
 import java.util.Objects;
 
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.uima.cas.text.AnnotationFS;
 import org.apache.uima.jcas.tcas.Annotation;
 
@@ -39,6 +40,10 @@ public class SpanPosition
     private final int end;
     private final String text;
 
+    // Fingerprint of the relations attached to the annotation - only set for layers which
+    // distinguish stacked annotations by their relations, otherwise null.
+    private final String relationContext;
+
     private SpanPosition(Builder builder)
     {
         super(builder.collectionId, builder.documentId, builder.type, builder.linkFeature,
@@ -47,6 +52,7 @@ public class SpanPosition
         begin = builder.begin;
         end = builder.end;
         text = builder.text;
+        relationContext = builder.relationContext;
     }
 
     public SpanPosition(String aCollectionId, String aDocumentId, String aType, int aBegin,
@@ -56,6 +62,7 @@ public class SpanPosition
         begin = aBegin;
         end = aEnd;
         text = aText;
+        relationContext = null;
     }
 
     /**
@@ -63,7 +70,15 @@ public class SpanPosition
      */
     public SpanPosition getBasePosition()
     {
-        return new SpanPosition(getCollectionId(), getDocumentId(), getType(), begin, end, text);
+        return builder() //
+                .withCollectionId(getCollectionId()) //
+                .withDocumentId(getDocumentId()) //
+                .withType(getType()) //
+                .withBegin(begin) //
+                .withEnd(end) //
+                .withText(text) //
+                .withRelationContext(relationContext) //
+                .build();
     }
 
     /**
@@ -82,6 +97,15 @@ public class SpanPosition
         return end;
     }
 
+    /**
+     * @return fingerprint of the relations attached to the annotation or {@code null} if the layer
+     *         does not distinguish stacked annotations by their relations.
+     */
+    public String getRelationContext()
+    {
+        return relationContext;
+    }
+
     @Override
     public int compareTo(Position aOther)
     {
@@ -94,11 +118,14 @@ public class SpanPosition
         // end descending
         else {
             SpanPosition otherSpan = (SpanPosition) aOther;
-            if (begin == otherSpan.begin) {
+            if (begin != otherSpan.begin) {
+                return begin - otherSpan.begin;
+            }
+            else if (end != otherSpan.end) {
                 return otherSpan.end - end;
             }
             else {
-                return begin - otherSpan.begin;
+                return ObjectUtils.compare(relationContext, otherSpan.relationContext);
             }
         }
     }
@@ -113,13 +140,14 @@ public class SpanPosition
             return false;
         }
         SpanPosition castOther = (SpanPosition) other;
-        return Objects.equals(begin, castOther.begin) && Objects.equals(end, castOther.end);
+        return Objects.equals(begin, castOther.begin) && Objects.equals(end, castOther.end)
+                && Objects.equals(relationContext, castOther.relationContext);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(super.hashCode(), begin, end);
+        return Objects.hash(super.hashCode(), begin, end, relationContext);
     }
 
     @Override
@@ -134,6 +162,9 @@ public class SpanPosition
         builder.insert(0, "Span [");
         builder.append("span=(").append(begin).append('-').append(end).append(')');
         builder.append('[').append(text).append(']');
+        if (relationContext != null) {
+            builder.append(", relations=[").append(relationContext).append(']');
+        }
         builder.append(']');
         return builder.toString();
     }
@@ -183,6 +214,7 @@ public class SpanPosition
         private int begin;
         private int end;
         private String text;
+        private String relationContext = null;
 
         private String linkFeature = null;
         private String linkRole = null;
@@ -288,6 +320,12 @@ public class SpanPosition
         public Builder withText(String aText)
         {
             text = aText;
+            return this;
+        }
+
+        public Builder withRelationContext(String aRelationContext)
+        {
+            relationContext = aRelationContext;
             return this;
         }
 

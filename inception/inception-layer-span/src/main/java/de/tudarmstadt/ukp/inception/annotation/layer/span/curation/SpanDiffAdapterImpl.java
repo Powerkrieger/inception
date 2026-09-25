@@ -84,6 +84,7 @@ public class SpanDiffAdapterImpl
     {
         return SpanPosition.builder() //
                 .forAnnotation((Annotation) aFS) //
+                .withRelationContext(getRelationContextFingerprinter().fingerprint(aFS)) //
                 .build();
     }
 
@@ -99,6 +100,7 @@ public class SpanDiffAdapterImpl
             }
 
             var array = FSUtil.getFeature(aFs, linkFeature, ArrayFS.class);
+            var relationContext = getRelationContextFingerprinter().fingerprint(aFs);
 
             if (array == null) {
                 continue;
@@ -111,6 +113,7 @@ public class SpanDiffAdapterImpl
                         linkFS.getType().getFeatureByBaseName(decl.getTargetFeature()));
                 var pos = SpanPosition.builder() //
                         .forAnnotation((Annotation) aFs) //
+                        .withRelationContext(relationContext) //
                         .withLinkFeature(decl.getName()) //
                         .withLinkFeatureMultiplicityMode(decl.getMultiplicityMode()) //
                         .withLinkRole(role) //

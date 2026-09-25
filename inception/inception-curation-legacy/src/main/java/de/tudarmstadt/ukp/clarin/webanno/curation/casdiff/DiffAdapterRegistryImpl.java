@@ -118,6 +118,11 @@ public class DiffAdapterRegistryImpl
             }
         }
 
+        var fingerprinter = RelationContextFingerprinterFactory.create(schemaService, project);
+        for (var adapter : adapters) {
+            adapter.setRelationContextFingerprinter(fingerprinter);
+        }
+
         // If the token/sentence layer is not editable, we do not offer curation of the tokens.
         // Instead the tokens are obtained from a random template CAS when initializing the CAS - we
         // assume here that the tokens have never been modified.
