@@ -168,6 +168,21 @@ public class CasMerge
     }
 
     /**
+     * @param aMergeAttachedRelations
+     *            whether to merge attached relations along with span annotations.
+     * @see CasMergeContext#setMergeAttachedRelations(boolean)
+     */
+    public void setMergeAttachedRelations(boolean aMergeAttachedRelations)
+    {
+        context.setMergeAttachedRelations(aMergeAttachedRelations);
+    }
+
+    public boolean isMergeAttachedRelations()
+    {
+        return context.isMergeAttachedRelations();
+    }
+
+    /**
      * Using {@code DiffResult}, determine the annotations to be deleted from the randomly generated
      * MergeCase. The initial Merge CAs is stored under a name {@code CurationPanel#CURATION_USER}.
      * <p>

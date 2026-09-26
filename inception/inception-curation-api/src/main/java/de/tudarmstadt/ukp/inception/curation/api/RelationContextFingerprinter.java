@@ -17,6 +17,7 @@
  */
 package de.tudarmstadt.ukp.inception.curation.api;
 
+import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
 import static java.util.Collections.unmodifiableMap;
 
@@ -195,9 +196,45 @@ public class RelationContextFingerprinter
             return null;
         }
 
-        var cas = aSpan.getCAS();
         var entries = new ArrayList<String>();
-        for (var decl : decls) {
+        forEachAttachedRelation(aSpan, decls, (decl, rel, direction, otherEnd) -> entries
+                .add(entry(decl, rel, direction, otherEnd)));
+        entries.sort(null);
+        return entries;
+    }
+
+    /**
+     * @param aSpan
+     *            a span annotation.
+     * @return the relations taken into account when fingerprinting the given annotation or an empty
+     *         list if the type of the annotation is not subject to fingerprinting.
+     */
+    public List<AnnotationBase> attachedRelations(FeatureStructure aSpan)
+    {
+        if (!(aSpan instanceof AnnotationBase)) {
+            return emptyList();
+        }
+
+        var decls = relationsBySpanType.get(aSpan.getType().getName());
+        if (decls == null) {
+            return emptyList();
+        }
+
+        var relations = new ArrayList<AnnotationBase>();
+        forEachAttachedRelation(aSpan, decls, (decl, rel, direction, otherEnd) -> {
+            // A relation from the annotation to itself is visited twice
+            if (!relations.contains(rel)) {
+                relations.add((AnnotationBase) rel);
+            }
+        });
+        return relations;
+    }
+
+    private static void forEachAttachedRelation(FeatureStructure aSpan, List<RelationDecl> aDecls,
+            RelationVisitor aVisitor)
+    {
+        var cas = aSpan.getCAS();
+        for (var decl : aDecls) {
             var relType = cas.getTypeSystem().getType(decl.type());
             if (relType == null) {
                 continue;
@@ -214,17 +251,21 @@ public class RelationContextFingerprinter
                 var target = rel.getFeatureValue(targetFeat);
 
                 if (source == aSpan) {
-                    entries.add(entry(decl, rel, "->", target));
+                    aVisitor.visit(decl, rel, "->", target);
                 }
 
                 if (target == aSpan) {
-                    entries.add(entry(decl, rel, "<-", source));
+                    aVisitor.visit(decl, rel, "<-", source);
                 }
             }
         }
+    }
 
-        entries.sort(null);
-        return entries;
+    @FunctionalInterface
+    private interface RelationVisitor
+    {
+        void visit(RelationDecl aDecl, FeatureStructure aRelation, String aDirection,
+                FeatureStructure aOtherEnd);
     }
 
     private String entry(RelationDecl aDecl, FeatureStructure aRelation, String aDirection,
