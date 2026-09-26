@@ -20,6 +20,7 @@ package de.tudarmstadt.ukp.inception.curation.merge;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMerge.copyFeatures;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeOperationResult.ResultState.CREATED;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeOperationResult.ResultState.UPDATED;
+import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeSpan.isEquivalentForMerge;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeSpan.isEquivalentIgnoringPosition;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeSpan.selectCandidateSpansAt;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeSpan.selectCandidateSpansAtAnchor;
@@ -286,6 +287,6 @@ class CasMergeRelation
 
         return selectCovered(aTargetCas, targetType.get(), aOriginal.getBegin(), aOriginal.getEnd())
                 .stream() //
-                .anyMatch(fs -> aAdapter.isEquivalentAnnotation(fs, aOriginal));
+                .anyMatch(fs -> isEquivalentForMerge(aAdapter, fs, aOriginal));
     }
 }
