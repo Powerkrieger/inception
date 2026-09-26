@@ -26,9 +26,11 @@ import static org.apache.uima.fit.util.CasUtil.selectAt;
 import static org.apache.uima.fit.util.CasUtil.selectCovered;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import org.apache.uima.cas.CAS;
+import org.apache.uima.cas.FeatureStructure;
 import org.apache.uima.cas.text.AnnotationFS;
 import org.apache.uima.jcas.tcas.Annotation;
 
@@ -143,12 +145,56 @@ class CasMergeSpan
             return Optional.empty();
         }
 
-        return aTargetCas.<Annotation> select(targetType.get()) //
-                .at(aOriginal.getBegin(), aOriginal.getEnd()) //
+        return selectCandidateSpansAtAnchor(aTargetCas, aFingerprinter, aAdapter, aOriginal) //
                 .filter(fs -> !aContext.isClaimed(fs)) //
-                .filter(fs -> aAdapter.isEquivalentAnnotation(fs, aOriginal)) //
+                .filter(fs -> isEquivalentIgnoringPosition(aAdapter, fs, aOriginal, Set.of())) //
                 .filter(fs -> aFingerprint.equals(aFingerprinter.fingerprint(fs))) //
                 .findFirst();
+    }
+
+    /**
+     * Like {@link #selectCandidateSpansAt} but for keyword-less annotations (zero-width or covering
+     * a whole sentence), all keyword-less annotations anchored at the same sentence are candidates,
+     * regardless of their exact offsets.
+     */
+    static Stream<Annotation> selectCandidateSpansAtAnchor(CAS aTargetCas,
+            RelationContextFingerprinter aFingerprinter, TypeAdapter aAdapter,
+            AnnotationFS aOriginal)
+    {
+        var anchor = aFingerprinter.anchor(aOriginal);
+        if (!anchor.keywordless()) {
+            return selectCandidateSpansAt(aTargetCas, aAdapter, aOriginal);
+        }
+
+        var targetType = aAdapter.getAnnotationType(aTargetCas);
+        if (targetType.isEmpty()) {
+            return Stream.empty();
+        }
+
+        return aTargetCas.<Annotation> select(targetType.get()) //
+                .coveredBy(anchor.begin(), anchor.end()) //
+                .filter(fs -> anchor.equals(aFingerprinter.anchor(fs)));
+    }
+
+    /**
+     * Compares the feature values of two annotations of the same layer but not their positions.
+     * Used where the position has already been matched by other means (e.g. for keyword-less
+     * annotations whose offsets may differ).
+     */
+    static boolean isEquivalentIgnoringPosition(TypeAdapter aAdapter, FeatureStructure aFS1,
+            FeatureStructure aFS2, Set<String> aIgnoredFeatures)
+    {
+        for (var feature : aAdapter.listFeatures()) {
+            if (aIgnoredFeatures.contains(feature.getName())) {
+                continue;
+            }
+
+            if (!aAdapter.isFeatureValueEqual(feature, aFS1, aFS2)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static boolean existsEquivalentSpan(CAS aTargetCas, TypeAdapter aAdapter,

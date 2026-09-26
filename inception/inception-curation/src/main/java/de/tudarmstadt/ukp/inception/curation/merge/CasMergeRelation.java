@@ -20,7 +20,9 @@ package de.tudarmstadt.ukp.inception.curation.merge;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMerge.copyFeatures;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeOperationResult.ResultState.CREATED;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeOperationResult.ResultState.UPDATED;
+import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeSpan.isEquivalentIgnoringPosition;
 import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeSpan.selectCandidateSpansAt;
+import static de.tudarmstadt.ukp.inception.curation.merge.CasMergeSpan.selectCandidateSpansAtAnchor;
 import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.getAddr;
 import static java.util.Collections.emptyList;
 import static org.apache.uima.fit.util.CasUtil.selectCovered;
@@ -29,6 +31,7 @@ import static org.apache.uima.fit.util.FSUtil.getFeature;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import org.apache.uima.cas.CAS;
@@ -114,13 +117,12 @@ class CasMergeRelation
                     "The annotation already exists in the target document.");
         }
 
-        var existingAnnos = selectCandidateRelationsAt(aTargetCas, relationAdapter, aSourceFs,
-                originFs, targetFs);
-        if (anchored) {
-            existingAnnos = existingAnnos.stream() //
-                    .filter(rel -> connects(relationAdapter, rel, originFs, targetFs)) //
-                    .toList();
-        }
+        // Anchored relations are matched via their endpoints since the offsets of keyword-less
+        // endpoints may differ between source and target
+        var existingAnnos = anchored
+                ? selectRelationsBetween(aTargetCas, relationAdapter, originFs, targetFs)
+                : selectCandidateRelationsAt(aTargetCas, relationAdapter, aSourceFs, originFs,
+                        targetFs);
         if (existingAnnos.isEmpty() || aAllowStacking) {
             var mergedRelation = relationAdapter.add(aDocument, aDataOwner, originFs, targetFs,
                     aTargetCas);
@@ -203,7 +205,8 @@ class CasMergeRelation
             RelationContextFingerprinter aFingerprinter, CAS aTargetCas, TypeAdapter aAdapter,
             AnnotationFS aEndpoint, List<String> aFingerprint)
     {
-        var candidates = selectCandidateSpansAt(aTargetCas, aAdapter, aEndpoint).toList();
+        var candidates = selectCandidateSpansAtAnchor(aTargetCas, aFingerprinter, aAdapter,
+                aEndpoint).toList();
 
         var mergedAddr = aContext.getMergedSpanTarget(aEndpoint, String.join("; ", aFingerprint));
         if (mergedAddr != null) {
@@ -248,17 +251,29 @@ class CasMergeRelation
                         AnnotationFS.class) == aTarget;
     }
 
-    private static boolean existsEquivalentRelationBetween(CAS aTargetCas, RelationAdapter aAdapter,
-            AnnotationFS aOriginal, AnnotationFS aSource, AnnotationFS aTarget)
+    private static List<Annotation> selectRelationsBetween(CAS aTargetCas, RelationAdapter aAdapter,
+            AnnotationFS aSource, AnnotationFS aTarget)
     {
         var targetType = aAdapter.getAnnotationType(aTargetCas);
         if (targetType.isEmpty()) {
-            return false;
+            return emptyList();
         }
 
         return aTargetCas.<Annotation> select(targetType.get()) //
                 .filter(fs -> connects(aAdapter, fs, aSource, aTarget)) //
-                .anyMatch(fs -> aAdapter.isEquivalentAnnotation(fs, aOriginal));
+                .toList();
+    }
+
+    private static boolean existsEquivalentRelationBetween(CAS aTargetCas, RelationAdapter aAdapter,
+            AnnotationFS aOriginal, AnnotationFS aSource, AnnotationFS aTarget)
+    {
+        // The endpoints are already known to be the right ones, but their offsets may differ from
+        // those in the source (keyword-less endpoints), so only the labels are compared
+        var endpointFeatures = Set.of(aAdapter.getSourceFeatureName(),
+                aAdapter.getTargetFeatureName());
+        return selectRelationsBetween(aTargetCas, aAdapter, aSource, aTarget).stream() //
+                .anyMatch(fs -> isEquivalentIgnoringPosition(aAdapter, fs, aOriginal,
+                        endpointFeatures));
     }
 
     private static boolean existsEquivalentRelation(CAS aTargetCas, TypeAdapter aAdapter,

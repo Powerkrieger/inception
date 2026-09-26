@@ -31,6 +31,7 @@ import org.apache.uima.cas.FeatureStructure;
 import org.apache.uima.cas.StringArrayFS;
 import org.apache.uima.cas.text.AnnotationFS;
 import org.apache.uima.jcas.cas.AnnotationBase;
+import org.apache.uima.jcas.tcas.Annotation;
 
 /**
  * Computes a fingerprint of the relations attached to a span annotation. The fingerprint is used to
@@ -40,11 +41,17 @@ import org.apache.uima.jcas.cas.AnnotationBase;
  * <p>
  * The fingerprint only looks at the offsets and type of the annotation at the other end of each
  * relation (not at its fingerprint), so the computation is not recursive.
+ * <p>
+ * Annotations of applicable types which do not mark a keyword - i.e. zero-width annotations or
+ * annotations covering a whole sentence - are {@link #anchor anchored} at their sentence instead of
+ * at their own offsets. Annotators may place such markers anywhere within the sentence.
  */
 public class RelationContextFingerprinter
     implements Serializable
 {
     private static final long serialVersionUID = -2787356151209524454L;
+
+    private static final String SENTENCE_TYPE = "de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Sentence";
 
     public static final RelationContextFingerprinter NONE = new RelationContextFingerprinter(
             emptyMap());
@@ -64,6 +71,97 @@ public class RelationContextFingerprinter
     public boolean isApplicable(String aSpanType)
     {
         return relationsBySpanType.containsKey(aSpanType);
+    }
+
+    /**
+     * @param aSpan
+     *            a span annotation.
+     * @return the offsets at which the annotation is positioned for the purpose of comparing it to
+     *         other annotations. For keyword-less annotations (zero-width or covering a whole
+     *         sentence) of applicable types, these are the offsets of the sentence. Otherwise,
+     *         these are the offsets of the annotation itself.
+     */
+    public Anchor anchor(AnnotationFS aSpan)
+    {
+        if (isApplicable(aSpan.getType().getName())) {
+            var sentence = findKeywordlessSentence(aSpan);
+            if (sentence != null) {
+                return new Anchor(sentence.getBegin(), sentence.getEnd(), true);
+            }
+        }
+
+        return new Anchor(aSpan.getBegin(), aSpan.getEnd(), false);
+    }
+
+    private static AnnotationFS findKeywordlessSentence(AnnotationFS aSpan)
+    {
+        var cas = aSpan.getCAS();
+        var sentenceType = cas.getTypeSystem().getType(SENTENCE_TYPE);
+        if (sentenceType == null) {
+            return null;
+        }
+
+        // Zero-width annotation: the sentence containing it - if it sits exactly between two
+        // sentences, the one it starts
+        if (aSpan.getBegin() == aSpan.getEnd()) {
+            var pos = aSpan.getBegin();
+            AnnotationFS ending = null;
+            for (var sentence : cas.<Annotation> select(sentenceType)) {
+                if (sentence.getBegin() > pos) {
+                    break;
+                }
+                if (pos < sentence.getEnd()) {
+                    return sentence;
+                }
+                if (pos == sentence.getEnd()) {
+                    ending = sentence;
+                }
+            }
+            return ending;
+        }
+
+        // Annotation covering a whole sentence - leading/trailing whitespace and punctuation are
+        // ignored since manually selected sentences often miss e.g. the final period
+        var text = cas.getDocumentText();
+        var span = trim(text, aSpan.getBegin(), aSpan.getEnd());
+        for (var sentence : cas.<Annotation> select(sentenceType)) {
+            if (sentence.getBegin() > aSpan.getEnd()) {
+                break;
+            }
+            if (sentence.getEnd() < aSpan.getBegin()) {
+                continue;
+            }
+            if (Arrays.equals(span, trim(text, sentence.getBegin(), sentence.getEnd()))) {
+                return sentence;
+            }
+        }
+
+        return null;
+    }
+
+    private static int[] trim(String aText, int aBegin, int aEnd)
+    {
+        var begin = aBegin;
+        var end = aEnd;
+        while (begin < end && isTrimmable(aText.charAt(begin))) {
+            begin++;
+        }
+        while (end > begin && isTrimmable(aText.charAt(end - 1))) {
+            end--;
+        }
+        return new int[] { begin, end };
+    }
+
+    private static boolean isTrimmable(char aChar)
+    {
+        if (Character.isWhitespace(aChar)) {
+            return true;
+        }
+
+        return switch (Character.getType(aChar)) {
+        case Character.CONNECTOR_PUNCTUATION, Character.DASH_PUNCTUATION, Character.START_PUNCTUATION, Character.END_PUNCTUATION, Character.INITIAL_QUOTE_PUNCTUATION, Character.FINAL_QUOTE_PUNCTUATION, Character.OTHER_PUNCTUATION -> true;
+        default -> false;
+        };
     }
 
     /**
@@ -129,7 +227,7 @@ public class RelationContextFingerprinter
         return entries;
     }
 
-    private static String entry(RelationDecl aDecl, FeatureStructure aRelation, String aDirection,
+    private String entry(RelationDecl aDecl, FeatureStructure aRelation, String aDirection,
             FeatureStructure aOtherEnd)
     {
         var sb = new StringBuilder();
@@ -155,8 +253,9 @@ public class RelationContextFingerprinter
         sb.append(' ').append(aDirection).append(' ');
 
         if (aOtherEnd instanceof AnnotationFS ann) {
-            sb.append(ann.getType().getName()).append('@').append(ann.getBegin()).append('-')
-                    .append(ann.getEnd());
+            var anchor = anchor(ann);
+            sb.append(ann.getType().getName()).append('@').append(anchor.begin()).append('-')
+                    .append(anchor.end());
         }
         else {
             sb.append(String.valueOf(aOtherEnd));
@@ -164,6 +263,18 @@ public class RelationContextFingerprinter
 
         return sb.toString();
     }
+
+    /**
+     * @param begin
+     *            the begin offset.
+     * @param end
+     *            the end offset.
+     * @param keywordless
+     *            whether the annotation does not mark a keyword and is anchored at its sentence.
+     */
+    public record Anchor(int begin, int end, boolean keywordless)
+        implements Serializable
+    {}
 
     /**
      * Declares a relation type to be taken into account when fingerprinting.

@@ -32,7 +32,9 @@ public class SpanLayerTraits
     /**
      * If enabled, annotations stacked at the same offsets with the same labels are told apart in
      * curation by the relations attached to them (e.g. several reactions on the same keyword which
-     * differ only in their reactants/products).
+     * differ only in their reactants/products). Annotations without a keyword (zero-width or
+     * covering a whole sentence) are matched by the sentence they are in instead of their exact
+     * offsets.
      */
     private boolean distinguishStackedByRelations = false;
 

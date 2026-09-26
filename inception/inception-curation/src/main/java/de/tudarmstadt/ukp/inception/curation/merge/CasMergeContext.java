@@ -176,7 +176,7 @@ public class CasMergeContext
     public void claim(AnnotationFS aSourceFs, String aFingerprint, AnnotationFS aTargetFs)
     {
         claimedTargetAddresses.add(getAddr(aTargetFs));
-        mergedSpanTargets.put(AnchorKey.of(aSourceFs, aFingerprint), getAddr(aTargetFs));
+        mergedSpanTargets.put(anchorKey(aSourceFs, aFingerprint), getAddr(aTargetFs));
     }
 
     /**
@@ -186,15 +186,17 @@ public class CasMergeContext
      */
     public Integer getMergedSpanTarget(AnnotationFS aSourceFs, String aFingerprint)
     {
-        return mergedSpanTargets.get(AnchorKey.of(aSourceFs, aFingerprint));
+        return mergedSpanTargets.get(anchorKey(aSourceFs, aFingerprint));
     }
 
-    private record AnchorKey(String type, int begin, int end, String fingerprint) {
-        static AnchorKey of(AnnotationFS aFs, String aFingerprint)
-        {
-            return new AnchorKey(aFs.getType().getName(), aFs.getBegin(), aFs.getEnd(),
-                    aFingerprint);
-        }
+    private record AnchorKey(String type, int begin, int end, String fingerprint) {}
+
+    private AnchorKey anchorKey(AnnotationFS aFs, String aFingerprint)
+    {
+        // Keyword-less annotations are keyed by their sentence so that the offsets at which
+        // different annotators placed them do not matter
+        var anchor = relationContextFingerprinter.anchor(aFs);
+        return new AnchorKey(aFs.getType().getName(), anchor.begin(), anchor.end(), aFingerprint);
     }
 
     public List<AnnotationFeature> listSupportedFeatures(AnnotationLayer aLayer)

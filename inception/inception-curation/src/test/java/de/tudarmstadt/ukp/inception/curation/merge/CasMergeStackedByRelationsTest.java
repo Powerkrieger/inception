@@ -54,6 +54,7 @@ import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.RelationContextFingerp
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
+import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Sentence;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationLayerSupport;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.curation.RelationDiffAdapterImpl;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanLayerSupport;
@@ -238,6 +239,165 @@ public class CasMergeStackedByRelationsTest
         assertThat(relationsOf(bare)).containsExactly("reactant@" + A);
     }
 
+    @Test
+    void thatKeywordlessReactionsAreAnchoredAtTheirSentence() throws Exception
+    {
+        var casByUser = new LinkedHashMap<String, CAS>();
+        casByUser.put("user1", annotateKeywordless(false));
+        casByUser.put("user2", annotateKeywordless(true));
+
+        var result = doDiff(diffAdapters(), casByUser).toResult();
+
+        assertThat(result.getPositions()) //
+                .as("Markers placed differently in the same sentence share a position") //
+                .filteredOn(pos -> REACTION.equals(pos.getType())) //
+                .hasSize(2);
+        for (var pos : result.getPositions()) {
+            var cfgSet = result.getConfigurationSet(pos);
+            assertThat(cfgSet.containsStackedConfigurations()).as("%s", pos).isFalse();
+            assertThat(result.isAgreement(cfgSet)).as("%s", pos).isTrue();
+            assertThat(result.isComplete(cfgSet)).as("%s", pos).isTrue();
+        }
+
+        var targetCas = createKeywordlessText();
+        sut.clearAndMergeCas(result, document, DUMMY_USER, targetCas, casByUser);
+
+        assertThat(reactionsWithRelations(targetCas)).containsExactlyInAnyOrder( //
+                Set.of("reactant@" + kwlA(), "product@" + kwlC()), //
+                Set.of("reactant@" + kwlB(), "product@" + kwlD()));
+        assertThat(select(targetCas, ENTITY)).hasSize(4);
+        assertThat(select(targetCas, ROLE)).hasSize(4);
+
+        // Re-merging into the preserved target must not duplicate anything even though the
+        // markers of the second annotator are at different offsets than the merged ones
+        var remerge = new CasMerge(schemaService, null);
+        remerge.setPreserveExisting(true);
+        remerge.mergeCas(result, document, DUMMY_USER, targetCas,
+                new LinkedHashMap<>(casByUser.reversed()));
+
+        assertThat(select(targetCas, REACTION)).hasSize(2);
+        assertThat(select(targetCas, ROLE)).hasSize(4);
+    }
+
+    @Test
+    void thatKeywordlessReactionsInDifferentSentencesAreNotMatched() throws Exception
+    {
+        var user1 = createKeywordlessText();
+        var user2 = createKeywordlessText();
+        for (var cas : List.of(user1, user2)) {
+            var a = entity(cas, kwlA());
+            var c = entity(cas, kwlC());
+            // user1 follows the convention (reactant sentence), user2 uses the first sentence
+            var at = cas == user1 ? KWL_S2_BEGIN : 0;
+            role(cas, reactionAt(cas, at, at), "reactant", a, "product", c);
+        }
+
+        var casByUser = new LinkedHashMap<String, CAS>();
+        casByUser.put("user1", user1);
+        casByUser.put("user2", user2);
+
+        var result = doDiff(diffAdapters(), casByUser).toResult();
+
+        var reactionSets = result.getPositions().stream() //
+                .filter(pos -> REACTION.equals(pos.getType())) //
+                .map(result::getConfigurationSet) //
+                .toList();
+        assertThat(reactionSets).hasSize(2);
+        assertThat(reactionSets).noneMatch(result::isComplete);
+    }
+
+    @Test
+    void thatKeywordReactionIsNotAnchoredAtSentence() throws Exception
+    {
+        var user1 = createKeywordlessText();
+        var user2 = createKeywordlessText();
+        for (var cas : List.of(user1, user2)) {
+            var a = entity(cas, kwlA());
+            var c = entity(cas, kwlC());
+            // user1 uses a zero-width marker, user2 the keyword "give"
+            var give = KWL_TEXT.indexOf("give");
+            var reaction = cas == user1 ? reactionAt(cas, give, give)
+                    : reactionAt(cas, give, give + 4);
+            role(cas, reaction, "reactant", a, "product", c);
+        }
+
+        var casByUser = new LinkedHashMap<String, CAS>();
+        casByUser.put("user1", user1);
+        casByUser.put("user2", user2);
+
+        var result = doDiff(diffAdapters(), casByUser).toResult();
+
+        assertThat(result.getPositions()) //
+                .filteredOn(pos -> REACTION.equals(pos.getType())) //
+                .hasSize(2);
+    }
+
+    // Two sentences - the reactions have no keyword and are annotated in the second one
+    private static final String KWL_TEXT = "Some intro here. A and B give C and D.";
+    private static final int KWL_S1_END = KWL_TEXT.indexOf('.') + 1;
+    private static final int KWL_S2_BEGIN = KWL_S1_END + 1;
+
+    private static int kwlA()
+    {
+        return KWL_TEXT.indexOf("A ");
+    }
+
+    private static int kwlB()
+    {
+        return KWL_TEXT.indexOf("B ");
+    }
+
+    private static int kwlC()
+    {
+        return KWL_TEXT.indexOf("C ");
+    }
+
+    private static int kwlD()
+    {
+        return KWL_TEXT.indexOf("D.");
+    }
+
+    private CAS createKeywordlessText() throws Exception
+    {
+        var cas = createCas(tsd);
+        cas.setDocumentText(KWL_TEXT);
+        var sentenceType = cas.getTypeSystem().getType(Sentence._TypeName);
+        cas.addFsToIndexes(cas.createAnnotation(sentenceType, 0, KWL_S1_END));
+        cas.addFsToIndexes(cas.createAnnotation(sentenceType, KWL_S2_BEGIN, KWL_TEXT.length()));
+        return cas;
+    }
+
+    /**
+     * Two keyword-less reactions in the second sentence: A -> C and B -> D. The annotators mark
+     * them differently: zero-width at sentence start vs. mid-sentence, and whole sentence without
+     * vs. with the final period.
+     */
+    private CAS annotateKeywordless(boolean aSecondAnnotator) throws Exception
+    {
+        var cas = createKeywordlessText();
+
+        var a = entity(cas, kwlA());
+        var b = entity(cas, kwlB());
+        var c = entity(cas, kwlC());
+        var d = entity(cas, kwlD());
+
+        var reactions = new ArrayList<Runnable>();
+        reactions.add(() -> {
+            var at = aSecondAnnotator ? KWL_TEXT.indexOf("give") : KWL_S2_BEGIN;
+            role(cas, reactionAt(cas, at, at), "reactant", a, "product", c);
+        });
+        reactions.add(() -> {
+            var end = aSecondAnnotator ? KWL_TEXT.length() : KWL_TEXT.length() - 1;
+            role(cas, reactionAt(cas, KWL_S2_BEGIN, end), "reactant", b, "product", d);
+        });
+        if (aSecondAnnotator) {
+            Collections.reverse(reactions);
+        }
+        reactions.forEach(Runnable::run);
+
+        return cas;
+    }
+
     /**
      * Three reactions on the same keyword: A -> C, B -> D and A -> D. The first and the last share
      * the reactant A, so also their "reactant" relations have identical offsets.
@@ -298,6 +458,15 @@ public class CasMergeStackedByRelationsTest
         var ann = (Annotation) aCas.createAnnotation(aCas.getTypeSystem().getType(ENTITY), aBegin,
                 aBegin + 1);
         ann.setFeatureValueFromString(ann.getType().getFeatureByBaseName("value"), "Chemical");
+        aCas.addFsToIndexes(ann);
+        return ann;
+    }
+
+    private static Annotation reactionAt(CAS aCas, int aBegin, int aEnd)
+    {
+        var ann = (Annotation) aCas.createAnnotation(aCas.getTypeSystem().getType(REACTION), aBegin,
+                aEnd);
+        ann.setFeatureValueFromString(ann.getType().getFeatureByBaseName("value"), "Conversion");
         aCas.addFsToIndexes(ann);
         return ann;
     }
