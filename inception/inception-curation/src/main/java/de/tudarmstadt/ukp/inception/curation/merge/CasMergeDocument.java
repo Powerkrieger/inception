@@ -101,6 +101,6 @@ class CasMergeDocument
         }
 
         return aTargetCas.<AnnotationBase> select(targetType.get()) //
-                .anyMatch(fs -> aAdapter.isEquivalentAnnotation(fs, aOriginal));
+                .anyMatch(fs -> CasMergeSpan.isEquivalentForMerge(aAdapter, fs, aOriginal));
     }
 }

@@ -22,8 +22,10 @@ import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.getAddr;
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.uima.cas.text.AnnotationFS;
 import org.slf4j.Logger;
@@ -32,10 +34,12 @@ import org.slf4j.LoggerFactory;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 
+import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.RelationContextFingerprinterFactory;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.inception.annotation.feature.link.LinkFeatureTraits;
+import de.tudarmstadt.ukp.inception.curation.api.RelationContextFingerprinter;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.TypeAdapter;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
@@ -53,6 +57,7 @@ public class CasMergeContext
 
     private boolean silenceEvents = false;
     private boolean preserveExisting = false;
+    private boolean mergeAttachedRelations = false;
 
     // Records, per slot (a link-list feature on a particular host annotation), whether that slot
     // was
@@ -64,6 +69,17 @@ public class CasMergeContext
     // never cleared; this is safe because every merge run builds a fresh CasMerge (and thus a fresh
     // CasMergeContext), and SlotId host addresses are only unique within a single target CAS.
     private final Map<SlotId, Boolean> slotFilledBeforeMerge = new HashMap<>();
+
+    private RelationContextFingerprinter relationContextFingerprinter;
+
+    // For span layers which distinguish stacked annotations by their relations: the target
+    // annotations which have already been matched to a source annotation during this merge run (so
+    // that they are not matched again by another stacked source annotation) and the target
+    // annotation each source span position was merged into (so that relations can be attached to
+    // the right one of several stacked target annotations). Like slotFilledBeforeMerge, these are
+    // only valid within a single merge run.
+    private final Set<Integer> claimedTargetAddresses = new HashSet<>();
+    private final Map<AnchorKey, Integer> mergedSpanTargets = new HashMap<>();
 
     public CasMergeContext(AnnotationSchemaService aSchemaService)
     {
@@ -110,6 +126,28 @@ public class CasMergeContext
     }
 
     /**
+     * If enabled, merging a span annotation on a layer which distinguishes stacked annotations by
+     * their relations also merges the relations attached to it (and their other endpoints if these
+     * do not exist in the target yet). Such an annotation is only fully defined by its relations -
+     * merging it alone would leave an annotation in the target which does not match its source and
+     * which cannot be told apart from other stacked annotations. This is used when merging
+     * individual annotations, not when merging entire documents (where the relations are merged
+     * anyway).
+     *
+     * @param aMergeAttachedRelations
+     *            whether to merge attached relations along with span annotations.
+     */
+    public void setMergeAttachedRelations(boolean aMergeAttachedRelations)
+    {
+        mergeAttachedRelations = aMergeAttachedRelations;
+    }
+
+    public boolean isMergeAttachedRelations()
+    {
+        return mergeAttachedRelations;
+    }
+
+    /**
      * Determines whether the given slot (a link-list feature on a particular host annotation) was
      * already filled in the target document when the merge started - i.e. whether it represents a
      * pre-existing decision (e.g. by a curator) that {@link #isPreserveExisting()
@@ -139,6 +177,50 @@ public class CasMergeContext
      * merge run (i.e. within a single target CAS, where the host address is unique).
      */
     private record SlotId(int hostAddress, String featureName) {}
+
+    public RelationContextFingerprinter getRelationContextFingerprinter(Project aProject)
+    {
+        if (relationContextFingerprinter == null) {
+            relationContextFingerprinter = RelationContextFingerprinterFactory.create(schemaService,
+                    aProject);
+        }
+        return relationContextFingerprinter;
+    }
+
+    public boolean isClaimed(AnnotationFS aTargetFs)
+    {
+        return claimedTargetAddresses.contains(getAddr(aTargetFs));
+    }
+
+    /**
+     * Records that the given source span annotation (with the given relation fingerprint) has been
+     * merged into the given target annotation.
+     */
+    public void claim(AnnotationFS aSourceFs, String aFingerprint, AnnotationFS aTargetFs)
+    {
+        claimedTargetAddresses.add(getAddr(aTargetFs));
+        mergedSpanTargets.put(anchorKey(aSourceFs, aFingerprint), getAddr(aTargetFs));
+    }
+
+    /**
+     * @return the address of the target annotation into which a source span annotation at the same
+     *         position and with the given relation fingerprint was merged during this merge run or
+     *         {@code null}.
+     */
+    public Integer getMergedSpanTarget(AnnotationFS aSourceFs, String aFingerprint)
+    {
+        return mergedSpanTargets.get(anchorKey(aSourceFs, aFingerprint));
+    }
+
+    private record AnchorKey(String type, int begin, int end, String fingerprint) {}
+
+    private AnchorKey anchorKey(AnnotationFS aFs, String aFingerprint)
+    {
+        // Keyword-less annotations are keyed by their sentence so that the offsets at which
+        // different annotators placed them do not matter
+        var anchor = relationContextFingerprinter.anchor(aFs);
+        return new AnchorKey(aFs.getType().getName(), anchor.begin(), anchor.end(), aFingerprint);
+    }
 
     public List<AnnotationFeature> listSupportedFeatures(AnnotationLayer aLayer)
     {

@@ -127,14 +127,24 @@ public class RelationDiffAdapterImpl
                     aLinkTargetEnd);
         }
 
+        // If an endpoint is stacked with other annotations that are distinguished by their
+        // relations, the relation must be anchored to the specific endpoint annotation.
+        // Keyword-less
+        // endpoints are anchored at their sentence instead of their own offsets.
+        var fingerprinter = getRelationContextFingerprinter();
+        var sourceContext = fingerprinter.fingerprint(sourceFS);
+        var targetContext = fingerprinter.fingerprint(targetFS);
+        var sourceAnchor = sourceFS != null ? fingerprinter.anchor(sourceFS) : null;
+        var targetAnchor = targetFS != null ? fingerprinter.anchor(targetFS) : null;
+
         return new RelationPosition(collectionId, documentId, getType(),
-                sourceFS != null ? sourceFS.getBegin() : -1,
-                sourceFS != null ? sourceFS.getEnd() : -1,
-                sourceFS != null ? sourceFS.getCoveredText() : null,
-                targetFS != null ? targetFS.getBegin() : -1,
-                targetFS != null ? targetFS.getEnd() : -1,
-                targetFS != null ? targetFS.getCoveredText() : null, null, null, aLinkTargetBegin,
-                aLinkTargetEnd, linkTargetText, null);
+                sourceAnchor != null ? sourceAnchor.begin() : -1,
+                sourceAnchor != null ? sourceAnchor.end() : -1,
+                sourceFS != null ? sourceFS.getCoveredText() : null, sourceContext,
+                targetAnchor != null ? targetAnchor.begin() : -1,
+                targetAnchor != null ? targetAnchor.end() : -1,
+                targetFS != null ? targetFS.getCoveredText() : null, targetContext, null, null,
+                aLinkTargetBegin, aLinkTargetEnd, linkTargetText, null);
     }
 
     @Override

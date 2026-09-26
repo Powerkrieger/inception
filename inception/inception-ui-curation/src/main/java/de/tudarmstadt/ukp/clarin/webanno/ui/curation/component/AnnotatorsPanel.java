@@ -221,6 +221,7 @@ public class AnnotatorsPanel
 
             // check if clicked on a span
             var casMerge = new CasMerge(schemaService, applicationEventPublisher.get());
+            casMerge.setMergeAttachedRelations(true);
             CasMergeOperationResult result = null;
             if (ACTION_SELECT_SPAN_FOR_MERGE.equals(action.toString())) {
                 result = mergeSpan(casMerge, targetCas, sourceCas, sourceVid,
@@ -310,6 +311,7 @@ public class AnnotatorsPanel
 
         var casMerge = new CasMerge(schemaService, applicationEventPublisher.get());
         casMerge.setSilenceEvents(true);
+        casMerge.setMergeAttachedRelations(true);
 
         nextAnnotation: for (var ann : select(sourceCas, maybeSourceType.get())) {
             try {

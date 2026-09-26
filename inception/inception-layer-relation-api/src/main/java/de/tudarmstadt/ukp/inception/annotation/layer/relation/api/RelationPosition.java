@@ -17,6 +17,10 @@
  */
 package de.tudarmstadt.ukp.inception.annotation.layer.relation.api;
 
+import static java.util.Comparator.naturalOrder;
+import static java.util.Comparator.nullsFirst;
+
+import java.util.Comparator;
 import java.util.Objects;
 
 import de.tudarmstadt.ukp.inception.annotation.feature.link.LinkFeatureMultiplicityMode;
@@ -31,6 +35,8 @@ public class RelationPosition
 {
     private static final long serialVersionUID = 2389265017101957950L;
 
+    private static final Comparator<String> CONTEXT_ORDER = nullsFirst(naturalOrder());
+
     private final int sourceBegin;
     private final int sourceEnd;
     private final String sourceText;
@@ -38,11 +44,27 @@ public class RelationPosition
     private final int targetEnd;
     private final String targetText;
 
+    // Fingerprints of the relations attached to the source/target annotations - only set if the
+    // respective endpoint layer distinguishes stacked annotations by their relations.
+    private final String sourceRelationContext;
+    private final String targetRelationContext;
+
     public RelationPosition(String aCollectionId, String aDocumentId, String aType,
             int aSourceBegin, int aSourceEnd, String aSourceText, int aTargetBegin, int aTargetEnd,
             String aTargetText, String aFeature, String aRole, int aLinkTargetBegin,
             int aLinkTargetEnd, String aLinkTargetText,
             LinkFeatureMultiplicityMode aLinkCompareBehavior)
+    {
+        this(aCollectionId, aDocumentId, aType, aSourceBegin, aSourceEnd, aSourceText, null,
+                aTargetBegin, aTargetEnd, aTargetText, null, aFeature, aRole, aLinkTargetBegin,
+                aLinkTargetEnd, aLinkTargetText, aLinkCompareBehavior);
+    }
+
+    public RelationPosition(String aCollectionId, String aDocumentId, String aType,
+            int aSourceBegin, int aSourceEnd, String aSourceText, String aSourceRelationContext,
+            int aTargetBegin, int aTargetEnd, String aTargetText, String aTargetRelationContext,
+            String aFeature, String aRole, int aLinkTargetBegin, int aLinkTargetEnd,
+            String aLinkTargetText, LinkFeatureMultiplicityMode aLinkCompareBehavior)
     {
         super(aCollectionId, aDocumentId, aType, aFeature, aRole, aLinkTargetBegin, aLinkTargetEnd,
                 aLinkTargetText, aLinkCompareBehavior);
@@ -52,6 +74,8 @@ public class RelationPosition
         targetBegin = aTargetBegin;
         targetEnd = aTargetEnd;
         targetText = aTargetText;
+        sourceRelationContext = aSourceRelationContext;
+        targetRelationContext = aTargetRelationContext;
     }
 
     /**
@@ -86,6 +110,22 @@ public class RelationPosition
         return targetEnd;
     }
 
+    /**
+     * @return fingerprint of the relations attached to the source annotation or {@code null}.
+     */
+    public String getSourceRelationContext()
+    {
+        return sourceRelationContext;
+    }
+
+    /**
+     * @return fingerprint of the relations attached to the target annotation or {@code null}.
+     */
+    public String getTargetRelationContext()
+    {
+        return targetRelationContext;
+    }
+
     @Override
     public int compareTo(Position aOther)
     {
@@ -107,8 +147,16 @@ public class RelationPosition
             else if (targetBegin != otherSpan.targetBegin) {
                 return targetBegin - otherSpan.targetBegin;
             }
-            else {
+            else if (targetEnd != otherSpan.targetEnd) {
                 return otherSpan.targetEnd - targetEnd;
+            }
+            else if (!Objects.equals(sourceRelationContext, otherSpan.sourceRelationContext)) {
+                return CONTEXT_ORDER.compare(sourceRelationContext,
+                        otherSpan.sourceRelationContext);
+            }
+            else {
+                return CONTEXT_ORDER.compare(targetRelationContext,
+                        otherSpan.targetRelationContext);
             }
         }
     }
@@ -126,13 +174,16 @@ public class RelationPosition
         return Objects.equals(sourceBegin, castOther.sourceBegin)
                 && Objects.equals(sourceEnd, castOther.sourceEnd)
                 && Objects.equals(targetBegin, castOther.targetBegin)
-                && Objects.equals(targetEnd, castOther.targetEnd);
+                && Objects.equals(targetEnd, castOther.targetEnd)
+                && Objects.equals(sourceRelationContext, castOther.sourceRelationContext)
+                && Objects.equals(targetRelationContext, castOther.targetRelationContext);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(super.hashCode(), sourceBegin, sourceEnd, targetBegin, targetEnd);
+        return Objects.hash(super.hashCode(), sourceBegin, sourceEnd, targetBegin, targetEnd,
+                sourceRelationContext, targetRelationContext);
     }
 
     @Override
@@ -148,6 +199,12 @@ public class RelationPosition
         builder.append('[').append(sourceText).append(']');
         builder.append(", target=(").append(targetBegin).append('-').append(targetEnd).append(')');
         builder.append('[').append(targetText).append(']');
+        if (sourceRelationContext != null) {
+            builder.append(", sourceRelations=[").append(sourceRelationContext).append(']');
+        }
+        if (targetRelationContext != null) {
+            builder.append(", targetRelations=[").append(targetRelationContext).append(']');
+        }
         builder.append("]");
         return builder.toString();
     }
