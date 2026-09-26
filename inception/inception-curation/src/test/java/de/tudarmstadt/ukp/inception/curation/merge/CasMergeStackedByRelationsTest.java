@@ -32,6 +32,7 @@ import static org.apache.uima.fit.factory.TypeSystemDescriptionFactory.createTyp
 import static org.apache.uima.fit.util.FSUtil.getFeature;
 import static org.apache.uima.util.CasCreationUtils.mergeTypeSystems;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -237,6 +238,72 @@ public class CasMergeStackedByRelationsTest
                 targetCas, (AnnotationFS) sourceRelation);
 
         assertThat(relationsOf(bare)).containsExactly("reactant@" + A);
+    }
+
+    @Test
+    void thatClickingReactionsMergesTheirRelationsAndDoesNotDuplicate() throws Exception
+    {
+        var sourceCas = annotate(false);
+
+        var targetCas = createCas(tsd);
+        targetCas.setDocumentText(TEXT);
+
+        // Each click is a separate merge run
+        for (var reaction : select(sourceCas, REACTION)) {
+            clickMerge(targetCas, reaction);
+        }
+
+        assertThat(reactionsWithRelations(targetCas))
+                .containsExactlyInAnyOrderElementsOf(expectedReactions());
+        assertThat(select(targetCas, ENTITY)).hasSize(4);
+        assertThat(select(targetCas, ROLE)).hasSize(6);
+
+        for (var reaction : select(sourceCas, REACTION)) {
+            assertThatExceptionOfType(AlreadyMergedException.class)
+                    .isThrownBy(() -> clickMerge(targetCas, reaction));
+        }
+
+        assertThat(reactionsWithRelations(targetCas))
+                .containsExactlyInAnyOrderElementsOf(expectedReactions());
+        assertThat(select(targetCas, ENTITY)).hasSize(4);
+        assertThat(select(targetCas, ROLE)).hasSize(6);
+    }
+
+    @Test
+    void thatClickingReactionCompletesBareReaction() throws Exception
+    {
+        var sourceCas = annotate(false);
+
+        // Reactions merged without their relations
+        var targetCas = createCas(tsd);
+        targetCas.setDocumentText(TEXT);
+        var tA = entity(targetCas, A);
+        var tD = entity(targetCas, D);
+        reaction(targetCas);
+        role(targetCas, reaction(targetCas), "reactant", tA);
+        role(targetCas, reaction(targetCas), "reactant", tA, "product", tD);
+
+        for (var reaction : select(sourceCas, REACTION)) {
+            try {
+                clickMerge(targetCas, reaction);
+            }
+            catch (AlreadyMergedException e) {
+                // A -> D is already complete
+            }
+        }
+
+        assertThat(reactionsWithRelations(targetCas))
+                .containsExactlyInAnyOrderElementsOf(expectedReactions());
+        assertThat(select(targetCas, ENTITY)).hasSize(4);
+        assertThat(select(targetCas, ROLE)).hasSize(6);
+    }
+
+    private void clickMerge(CAS aTargetCas, Annotation aSourceReaction) throws Exception
+    {
+        var casMerge = new CasMerge(schemaService, null);
+        casMerge.setMergeAttachedRelations(true);
+        casMerge.mergeSpanAnnotation(document, DUMMY_USER, reactionLayer, aTargetCas,
+                aSourceReaction);
     }
 
     @Test

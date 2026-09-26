@@ -301,6 +301,7 @@ public class CurationEditorExtension
     {
         var doc = aState.getDocument();
         var casMerge = new CasMerge(annotationService, applicationEventPublisher);
+        casMerge.setMergeAttachedRelations(true);
         var mergeResult = casMerge.mergeSpanAnnotation(doc, aSrcUser, layer, aTargetCas,
                 sourceAnnotation);
 

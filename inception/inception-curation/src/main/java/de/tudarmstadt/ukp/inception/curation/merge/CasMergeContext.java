@@ -57,6 +57,7 @@ public class CasMergeContext
 
     private boolean silenceEvents = false;
     private boolean preserveExisting = false;
+    private boolean mergeAttachedRelations = false;
 
     // Records, per slot (a link-list feature on a particular host annotation), whether that slot
     // was
@@ -122,6 +123,28 @@ public class CasMergeContext
     public boolean isPreserveExisting()
     {
         return preserveExisting;
+    }
+
+    /**
+     * If enabled, merging a span annotation on a layer which distinguishes stacked annotations by
+     * their relations also merges the relations attached to it (and their other endpoints if these
+     * do not exist in the target yet). Such an annotation is only fully defined by its relations -
+     * merging it alone would leave an annotation in the target which does not match its source and
+     * which cannot be told apart from other stacked annotations. This is used when merging
+     * individual annotations, not when merging entire documents (where the relations are merged
+     * anyway).
+     *
+     * @param aMergeAttachedRelations
+     *            whether to merge attached relations along with span annotations.
+     */
+    public void setMergeAttachedRelations(boolean aMergeAttachedRelations)
+    {
+        mergeAttachedRelations = aMergeAttachedRelations;
+    }
+
+    public boolean isMergeAttachedRelations()
+    {
+        return mergeAttachedRelations;
     }
 
     /**
