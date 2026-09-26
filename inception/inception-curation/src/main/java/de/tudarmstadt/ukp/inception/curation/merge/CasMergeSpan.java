@@ -291,15 +291,29 @@ class CasMergeSpan
     }
 
     /**
-     * Compares the feature values of two annotations of the same layer but not their positions.
-     * Used where the position has already been matched by other means (e.g. for keyword-less
-     * annotations whose offsets may differ).
+     * Checks whether the given target annotation is what merging the given source annotation would
+     * produce - i.e. whether both are at the same position and agree in all features which are
+     * copied during merging. Features which are not curatable are not copied and are therefore
+     * ignored - otherwise, a merged annotation would never be recognized as already merged if its
+     * source has a value in such a feature (e.g. a comment).
+     */
+    static boolean isEquivalentForMerge(TypeAdapter aAdapter, FeatureStructure aFS1,
+            FeatureStructure aFS2)
+    {
+        return aAdapter.isSamePosition(aFS1, aFS2)
+                && isEquivalentIgnoringPosition(aAdapter, aFS1, aFS2, Set.of());
+    }
+
+    /**
+     * Compares the curatable feature values of two annotations of the same layer but not their
+     * positions. Used where the position has already been matched by other means (e.g. for
+     * keyword-less annotations whose offsets may differ).
      */
     static boolean isEquivalentIgnoringPosition(TypeAdapter aAdapter, FeatureStructure aFS1,
             FeatureStructure aFS2, Set<String> aIgnoredFeatures)
     {
         for (var feature : aAdapter.listFeatures()) {
-            if (aIgnoredFeatures.contains(feature.getName())) {
+            if (!feature.isCuratable() || aIgnoredFeatures.contains(feature.getName())) {
                 continue;
             }
 
@@ -321,6 +335,6 @@ class CasMergeSpan
 
         return selectCovered(aTargetCas, targetType.get(), aOriginal.getBegin(), aOriginal.getEnd())
                 .stream() //
-                .anyMatch(fs -> aAdapter.isEquivalentAnnotation(fs, aOriginal));
+                .anyMatch(fs -> isEquivalentForMerge(aAdapter, fs, aOriginal));
     }
 }

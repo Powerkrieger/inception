@@ -99,7 +99,9 @@ public class CasMergeStackedByRelationsTest
         var custom = new TypeSystemDescription_impl();
         custom.addType(REACTION, "", TYPE_NAME_ANNOTATION).addFeature("value", "",
                 TYPE_NAME_STRING);
-        custom.addType(ENTITY, "", TYPE_NAME_ANNOTATION).addFeature("value", "", TYPE_NAME_STRING);
+        var entityType = custom.addType(ENTITY, "", TYPE_NAME_ANNOTATION);
+        entityType.addFeature("value", "", TYPE_NAME_STRING);
+        entityType.addFeature("comment", "", TYPE_NAME_STRING);
         var roleType = custom.addType(ROLE, "", TYPE_NAME_ANNOTATION);
         roleType.addFeature(FEAT_REL_SOURCE, "", TYPE_NAME_ANNOTATION);
         roleType.addFeature(FEAT_REL_TARGET, "", TYPE_NAME_ANNOTATION);
@@ -122,6 +124,9 @@ public class CasMergeStackedByRelationsTest
 
         var reactionValue = feature(reactionLayer, "value");
         var entityValue = feature(entityLayer, "value");
+        // Not curatable, hence not copied when merging
+        var entityComment = feature(entityLayer, "comment");
+        entityComment.setCuratable(false);
         var roleRole = feature(roleLayer, "role");
 
         lenient().doReturn(reactionLayer).when(schemaService).findLayer(any(Project.class),
@@ -131,7 +136,7 @@ public class CasMergeStackedByRelationsTest
         lenient().doReturn(roleLayer).when(schemaService).findLayer(any(Project.class), eq(ROLE));
         lenient().doReturn(asList(reactionValue)).when(schemaService)
                 .listAnnotationFeature(reactionLayer);
-        lenient().doReturn(asList(entityValue)).when(schemaService)
+        lenient().doReturn(asList(entityValue, entityComment)).when(schemaService)
                 .listAnnotationFeature(entityLayer);
         lenient().doReturn(asList(roleRole)).when(schemaService).listAnnotationFeature(roleLayer);
         lenient().doReturn(asList(reactionLayer, entityLayer, roleLayer)).when(schemaService)
@@ -294,6 +299,40 @@ public class CasMergeStackedByRelationsTest
 
         assertThat(reactionsWithRelations(targetCas))
                 .containsExactlyInAnyOrderElementsOf(expectedReactions());
+        assertThat(select(targetCas, ENTITY)).hasSize(4);
+        assertThat(select(targetCas, ROLE)).hasSize(6);
+    }
+
+    @Test
+    void thatClickingReactionsSharingAProductDoesNotDuplicateTheProduct() throws Exception
+    {
+        var sourceCas = createCas(tsd);
+        sourceCas.setDocumentText(TEXT);
+        var a = entity(sourceCas, A);
+        var b = entity(sourceCas, B);
+        var c = entity(sourceCas, C);
+        var d = entity(sourceCas, D);
+        // Annotator comments are not curatable and not merged - they must not prevent the merged
+        // entities from being recognized as already merged
+        for (var entity : List.of(a, b, c, d)) {
+            entity.setFeatureValueFromString(entity.getType().getFeatureByBaseName("comment"),
+                    "annotator note");
+        }
+        role(sourceCas, reaction(sourceCas), "reactant", a, "product", d);
+        role(sourceCas, reaction(sourceCas), "reactant", b, "product", d);
+        role(sourceCas, reaction(sourceCas), "reactant", c, "product", d);
+
+        var targetCas = createCas(tsd);
+        targetCas.setDocumentText(TEXT);
+
+        for (var reaction : select(sourceCas, REACTION)) {
+            clickMerge(targetCas, reaction);
+        }
+
+        assertThat(reactionsWithRelations(targetCas)).containsExactlyInAnyOrder( //
+                Set.of("reactant@" + A, "product@" + D), //
+                Set.of("reactant@" + B, "product@" + D), //
+                Set.of("reactant@" + C, "product@" + D));
         assertThat(select(targetCas, ENTITY)).hasSize(4);
         assertThat(select(targetCas, ROLE)).hasSize(6);
     }
