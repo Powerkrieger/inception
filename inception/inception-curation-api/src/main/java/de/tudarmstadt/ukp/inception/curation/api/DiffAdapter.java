@@ -59,4 +59,14 @@ public interface DiffAdapter
 
     void addLinkFeature(String aName, String aRoleFeature, String aTargetFeature,
             LinkFeatureMultiplicityMode aCompareBehavior, LinkFeatureDiffMode aDiffMode);
+
+    /**
+     * @param aFingerprinter
+     *            fingerprinter used to distinguish stacked span annotations by their attached
+     *            relations when generating positions.
+     */
+    default void setRelationContextFingerprinter(RelationContextFingerprinter aFingerprinter)
+    {
+        // Ignored by default
+    }
 }

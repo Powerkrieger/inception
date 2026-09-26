@@ -29,6 +29,15 @@ public class SpanLayerTraits
 
     private ColoringRules coloringRules = new ColoringRules();
 
+    /**
+     * If enabled, annotations stacked at the same offsets with the same labels are told apart in
+     * curation by the relations attached to them (e.g. several reactions on the same keyword which
+     * differ only in their reactants/products). Annotations without a keyword (zero-width or
+     * covering a whole sentence) are matched by the sentence they are in instead of their exact
+     * offsets.
+     */
+    private boolean distinguishStackedByRelations = false;
+
     public SpanLayerTraits()
     {
         // Nothing to do
@@ -44,5 +53,15 @@ public class SpanLayerTraits
     public void setColoringRules(ColoringRules aColoringRules)
     {
         coloringRules = aColoringRules;
+    }
+
+    public boolean isDistinguishStackedByRelations()
+    {
+        return distinguishStackedByRelations;
+    }
+
+    public void setDistinguishStackedByRelations(boolean aDistinguishStackedByRelations)
+    {
+        distinguishStackedByRelations = aDistinguishStackedByRelations;
     }
 }

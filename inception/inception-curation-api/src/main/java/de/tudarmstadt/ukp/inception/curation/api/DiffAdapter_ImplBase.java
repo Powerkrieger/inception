@@ -38,6 +38,9 @@ public abstract class DiffAdapter_ImplBase
 
     private final Map<String, LinkFeatureDecl> linkFeatures = new LinkedHashMap<>();
 
+    private RelationContextFingerprinter relationContextFingerprinter = //
+            RelationContextFingerprinter.NONE;
+
     public DiffAdapter_ImplBase(String aType, Set<String> aFeatures)
     {
         type = aType;
@@ -50,6 +53,18 @@ public abstract class DiffAdapter_ImplBase
     {
         linkFeatures.put(aName, new LinkFeatureDecl(aName, aRoleFeature, aTargetFeature,
                 aCompareBehavior, aDiffMode));
+    }
+
+    @Override
+    public void setRelationContextFingerprinter(RelationContextFingerprinter aFingerprinter)
+    {
+        relationContextFingerprinter = aFingerprinter != null ? aFingerprinter
+                : RelationContextFingerprinter.NONE;
+    }
+
+    public RelationContextFingerprinter getRelationContextFingerprinter()
+    {
+        return relationContextFingerprinter;
     }
 
     @Override
