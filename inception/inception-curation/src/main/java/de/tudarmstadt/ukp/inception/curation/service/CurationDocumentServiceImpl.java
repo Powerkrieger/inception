@@ -306,10 +306,6 @@ public class CurationDocumentServiceImpl
         // Make sure we know the latest state from the DB - just in case the given document is stale
         var state = getCurrentState(aDocument);
 
-        if (!CURATION_IN_PROGRESS.equals(state) && !CURATION_FINISHED.equals(state)) {
-            return true;
-        }
-
         // CURATION_FINISHED is only ever reached through an explicit curator action, so a missing
         // curation CAS there is somebody having reset the curation on purpose - not a failed merge.
         if (CURATION_FINISHED.equals(state)) {
@@ -319,7 +315,8 @@ public class CurationDocumentServiceImpl
         try {
             // A document claiming to be in curation but without a curation CAS to back that claim
             // is the result of a failed initial merge - retry it instead of locking the document
-            // up.
+            // up. A document that is not in curation but has a curation CAS was returned to
+            // annotation with its curation kept - merging would clear that.
             return !existsCurationCas(aDocument);
         }
         catch (IOException e) {
