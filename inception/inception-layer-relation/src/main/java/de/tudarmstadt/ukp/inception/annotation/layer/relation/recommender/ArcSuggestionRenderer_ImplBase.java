@@ -20,14 +20,14 @@ package de.tudarmstadt.ukp.inception.annotation.layer.relation.recommender;
 import static java.util.Collections.emptySet;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.toMap;
-import static org.apache.uima.fit.util.CasUtil.selectAt;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.apache.uima.cas.CAS;
 import org.apache.uima.cas.Type;
-import org.apache.uima.cas.text.AnnotationFS;
 
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
@@ -35,10 +35,14 @@ import de.tudarmstadt.ukp.inception.recommendation.api.RecommendationService;
 import de.tudarmstadt.ukp.inception.recommendation.api.SuggestionRenderer;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.AnnotationSuggestion;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.ArcSuggestion_ImplBase;
+import de.tudarmstadt.ukp.inception.recommendation.api.model.RelationSuggestion;
+import de.tudarmstadt.ukp.inception.recommendation.api.model.RelationSuggestion.Endpoint;
+import de.tudarmstadt.ukp.inception.recommendation.api.model.SpanSuggestion;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.SuggestionDocumentGroup;
 import de.tudarmstadt.ukp.inception.rendering.request.RenderRequest;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VArc;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VDocument;
+import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupport;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupportRegistry;
@@ -87,6 +91,18 @@ public abstract class ArcSuggestionRenderer_ImplBase<T extends ArcSuggestion_Imp
 
         var rankerCache = new HashMap<Long, Boolean>();
 
+        // The span suggestions shown, which suggested arcs may attach to (span layers render first)
+        var spanSuggestions = recommendationService
+                .getPredictions(aRequest.getSessionOwner(), aLayer.getProject()).values().stream() //
+                .flatMap(p -> p
+                        .getSuggestionsByDocument(aRequest.getSourceDocument(),
+                                aRequest.getWindowBeginOffset(), aRequest.getWindowEndOffset())
+                        .stream()) //
+                .filter(SpanSuggestion.class::isInstance) //
+                .map(SpanSuggestion.class::cast) //
+                .filter(s -> aVDoc.getSpan(s.getVID()) != null) //
+                .toList();
+
         for (var group : groupedPredictions) {
             for (var suggestion : group.bestSuggestions(pref)) {
                 // Skip rendering AnnotationObjects that should not be rendered
@@ -113,16 +129,13 @@ public abstract class ArcSuggestionRenderer_ImplBase<T extends ArcSuggestion_Imp
                 var sourceType = getSourceType(cas, aLayer, feature);
                 var targetType = getTargetType(cas, aLayer, feature);
 
-                // FIXME: We get the first match for the (begin, end) span. With stacking, there can
-                // be more than one and we need to get the right one then which does not need to be
-                // the first. We wait for #2135 for a maybe fix.
-                var source = selectAt(cas, sourceType, sourceBegin, sourceEnd) //
-                        .stream().findFirst().orElse(null);
+                var relation = suggestion instanceof RelationSuggestion r ? r : null;
+                var source = findEndpoint(aVDoc, cas, spanSuggestions, sourceType, sourceBegin,
+                        sourceEnd, relation != null ? relation.getSourceEndpoint() : null);
+                var target = findEndpoint(aVDoc, cas, spanSuggestions, targetType, targetBegin,
+                        targetEnd, relation != null ? relation.getTargetEndpoint() : null);
 
-                var target = selectAt(cas, targetType, targetBegin, targetEnd) //
-                        .stream().findFirst().orElse(null);
-
-                if (source == null || target == null) {
+                if (source.isEmpty() || target.isEmpty()) {
                     continue;
                 }
 
@@ -142,7 +155,7 @@ public abstract class ArcSuggestionRenderer_ImplBase<T extends ArcSuggestion_Imp
                     return false;
                 });
 
-                var arc = renderArc(aLayer, suggestion, source, target, featureValues);
+                var arc = renderArc(aLayer, suggestion, source.get(), target.get(), featureValues);
                 arc.setScore(suggestion.getScore());
                 arc.setHideScore(isRanker);
 
@@ -151,8 +164,27 @@ public abstract class ArcSuggestionRenderer_ImplBase<T extends ArcSuggestion_Imp
         }
     }
 
-    protected abstract VArc renderArc(AnnotationLayer aLayer, T suggestion, AnnotationFS source,
-            AnnotationFS target, Map<String, String> featureAnnotation);
+    private Optional<VID> findEndpoint(VDocument aVDoc, CAS aCas,
+            List<SpanSuggestion> aSpanSuggestions, Type aType, int aBegin, int aEnd,
+            Endpoint aEndpoint)
+    {
+        var annotation = RelationEndpoints.findAnnotation(aCas, aType, aBegin, aEnd, aEndpoint);
+        if (annotation.isPresent()) {
+            return annotation.map(VID::of);
+        }
+
+        // Not annotated yet: draw the arc to the span suggestion there. It disappears with that
+        // suggestion when it is rejected or hidden, and accepting the arc accepts it first.
+        return aSpanSuggestions.stream() //
+                .filter(s -> RelationEndpoints.isSuggestedAt(s,
+                        aVDoc.getSpan(s.getVID()).getLayer().getName(), aType, aBegin, aEnd,
+                        aEndpoint)) //
+                .map(SpanSuggestion::getVID) //
+                .findFirst();
+    }
+
+    protected abstract VArc renderArc(AnnotationLayer aLayer, T suggestion, VID source, VID target,
+            Map<String, String> featureAnnotation);
 
     protected abstract Type getSourceType(CAS aCas, AnnotationLayer aLayer,
             AnnotationFeature aFeature);

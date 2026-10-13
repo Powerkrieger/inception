@@ -21,7 +21,6 @@ import java.util.Map;
 
 import org.apache.uima.cas.CAS;
 import org.apache.uima.cas.Type;
-import org.apache.uima.cas.text.AnnotationFS;
 import org.apache.uima.fit.util.CasUtil;
 
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
@@ -44,10 +43,10 @@ public class LinkSuggestionRenderer
     }
 
     @Override
-    protected VArc renderArc(AnnotationLayer aLayer, LinkSuggestion suggestion, AnnotationFS source,
-            AnnotationFS target, Map<String, String> featureAnnotation)
+    protected VArc renderArc(AnnotationLayer aLayer, LinkSuggestion suggestion, VID source,
+            VID target, Map<String, String> featureAnnotation)
     {
-        return new VArc(aLayer, suggestion.getVID(), VID.of(source), VID.of(target),
+        return new VArc(aLayer, suggestion.getVID(), source, target,
                 "\uD83E\uDD16 " + suggestion.getUiLabel(), featureAnnotation, COLOR);
     }
 
