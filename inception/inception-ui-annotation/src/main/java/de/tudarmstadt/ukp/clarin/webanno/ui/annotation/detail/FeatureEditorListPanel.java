@@ -21,6 +21,7 @@ import static de.tudarmstadt.ukp.clarin.webanno.ui.annotation.detail.AnnotationD
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visibleWhen;
 import static java.util.Optional.empty;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
+import static org.apache.uima.cas.CAS.TYPE_NAME_STRING;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -38,11 +39,13 @@ import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.ajax.form.AjaxFormComponentUpdatingBehavior;
 import org.apache.wicket.behavior.AttributeAppender;
 import org.apache.wicket.markup.html.WebMarkupContainer;
+import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.markup.repeater.Item;
 import org.apache.wicket.markup.repeater.RefreshingView;
 import org.apache.wicket.markup.repeater.util.ModelIteratorAdapter;
 import org.apache.wicket.model.IModel;
+import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.spring.injection.annot.SpringBean;
@@ -64,6 +67,7 @@ import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditor;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditorValueChangedEvent;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupport;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupportRegistry;
+import de.tudarmstadt.ukp.inception.support.lambda.LambdaClassAttributeModifier;
 import de.tudarmstadt.ukp.inception.support.wicket.DescriptionTooltipBehavior;
 
 public class FeatureEditorListPanel
@@ -74,6 +78,12 @@ public class FeatureEditorListPanel
     private static final Logger LOG = LoggerFactory.getLogger(FeatureEditorListPanel.class);
 
     public static final String ID_PREFIX = "featureEditorHead";
+
+    /**
+     * Type name prefix of single-value Concept (KB-linked) features - see
+     * {@code ConceptFeatureSupport.PREFIX}, which lives in a module this one does not depend on.
+     */
+    private static final String CONCEPT_TYPE_PREFIX = "kb:";
 
     private @SpringBean FeatureSupportRegistry featureSupportRegistry;
     private @SpringBean AnnotationSchemaService annotationService;
@@ -291,7 +301,32 @@ public class FeatureEditorListPanel
                 editor.getFocusComponent().setEnabled(false);
             }
 
+            // A feature hidden by its visibleIf expression is still shown if it holds a value
+            // (e.g. an identifier left over from before the entity type was changed) - flag it so
+            // the annotator notices and clears it. Evaluated on render because items are cached.
+            editor.add(new LambdaClassAttributeModifier(classes -> {
+                if (isStale(featureState)) {
+                    classes.add("border-start");
+                    classes.add("border-3");
+                    classes.add("border-warning");
+                }
+                return classes;
+            }));
             aItem.add(editor);
+
+            var staleWarning = new Label("staleWarning",
+                    LoadableDetachableModel.of(() -> "Normally hidden (requires: "
+                            + featureState.feature.getVisibleIf()
+                            + ") - shown because it still has a value. Clear it if it no "
+                            + "longer applies."));
+            staleWarning.add(visibleWhen(() -> isStale(featureState)));
+            aItem.add(staleWarning);
+        }
+
+        private boolean isStale(FeatureState aFeatureState)
+        {
+            return isStaleFeatureState(aFeatureState, getModelObject().getFeatureStates(),
+                    featureSupportRegistry);
         }
 
         @Override
@@ -320,16 +355,46 @@ public class FeatureEditorListPanel
     /**
      * Returns the subset of the given feature states whose {@code visibleIf} expression (if any)
      * currently evaluates to {@code true}, evaluated against the values of the other feature states
-     * in the same list. Does not modify the input list or any {@link FeatureState} in it - a
-     * feature that is currently hidden keeps its value, it merely does not appear in the result.
+     * in the same list - plus any {@linkplain #isStaleFeatureState stale} feature, i.e. one that
+     * would be hidden but still holds a value. Does not modify the input list or any
+     * {@link FeatureState} in it - a feature that is currently hidden keeps its value, it merely
+     * does not appear in the result.
      */
     static List<FeatureState> filterVisibleFeatureStates(List<FeatureState> aFeatureStates,
             FeatureSupportRegistry aFeatureSupportRegistry)
     {
         var featureValues = featureValueLookup(aFeatureStates, aFeatureSupportRegistry);
         return aFeatureStates.stream()
-                .filter(fs -> VisibleIfEvaluator.isVisible(fs.getFeature(), featureValues))
+                .filter(fs -> VisibleIfEvaluator.isVisible(fs.getFeature(), featureValues)
+                        || isStale(fs, featureValues))
                 .toList();
+    }
+
+    /**
+     * A feature is stale if its {@code visibleIf} expression currently evaluates to {@code false}
+     * but it still holds a non-blank value - typically because the feature it depends on was
+     * changed after it had been filled in. Stale features are shown anyway (with a warning) so that
+     * such leftover values do not silently end up in the data. Only String and Concept features are
+     * considered: for primitive features, the CAS cannot tell an unset value from
+     * {@code false}/{@code 0}.
+     */
+    static boolean isStaleFeatureState(FeatureState aFeatureState,
+            List<FeatureState> aFeatureStates, FeatureSupportRegistry aFeatureSupportRegistry)
+    {
+        return isStale(aFeatureState, featureValueLookup(aFeatureStates, aFeatureSupportRegistry));
+    }
+
+    private static boolean isStale(FeatureState aFeatureState,
+            Function<String, String> aFeatureValues)
+    {
+        var feature = aFeatureState.getFeature();
+        var type = feature.getType();
+        if (!TYPE_NAME_STRING.equals(type) && !type.startsWith(CONCEPT_TYPE_PREFIX)) {
+            return false;
+        }
+
+        return isNotBlank(aFeatureValues.apply(feature.getName()))
+                && !VisibleIfEvaluator.isVisible(feature, aFeatureValues);
     }
 
     /**
