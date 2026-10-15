@@ -18,6 +18,7 @@
 package de.tudarmstadt.ukp.clarin.webanno.ui.annotation.detail;
 
 import static de.tudarmstadt.ukp.clarin.webanno.ui.annotation.detail.FeatureEditorListPanel.filterVisibleFeatureStates;
+import static de.tudarmstadt.ukp.clarin.webanno.ui.annotation.detail.FeatureEditorListPanel.isStaleFeatureState;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
@@ -125,7 +126,13 @@ class FeatureEditorListPanelVisibilityTest
     private AnnotationFeature occupationFeature;
     private AnnotationFeature timeFeature;
 
+    /** Dependent features left empty, as on a freshly created annotation. */
     private List<FeatureState> featureStates(String aEntityType)
+    {
+        return featureStates(aEntityType, null, null);
+    }
+
+    private List<FeatureState> featureStates(String aEntityType, String aGender, String aOccupation)
     {
         entityTypeFeature = new AnnotationFeature("entityType", "uima.cas.String");
 
@@ -139,14 +146,22 @@ class FeatureEditorListPanelVisibilityTest
 
         return List.of( //
                 new FeatureState(VID.NONE_ID, entityTypeFeature, aEntityType), //
-                new FeatureState(VID.NONE_ID, genderFeature, "FEMALE"), //
-                new FeatureState(VID.NONE_ID, occupationFeature, "ENGINEER"), //
+                new FeatureState(VID.NONE_ID, genderFeature, aGender), //
+                new FeatureState(VID.NONE_ID, occupationFeature, aOccupation), //
                 new FeatureState(VID.NONE_ID, timeFeature, "2026"));
     }
 
     private List<String> visibleNames(List<FeatureState> aStates)
     {
         return filterVisibleFeatureStates(aStates, NO_FEATURE_SUPPORT_REGISTERED).stream() //
+                .map(fs -> fs.getFeature().getName()) //
+                .toList();
+    }
+
+    private List<String> staleNames(List<FeatureState> aStates)
+    {
+        return aStates.stream() //
+                .filter(fs -> isStaleFeatureState(fs, aStates, NO_FEATURE_SUPPORT_REGISTERED)) //
                 .map(fs -> fs.getFeature().getName()) //
                 .toList();
     }
@@ -186,23 +201,88 @@ class FeatureEditorListPanelVisibilityTest
     }
 
     @Test
-    void thatHidingAFeatureDoesNotDeleteItsStoredValue()
+    void thatHiddenFeatureWithValueIsShownAsStale()
     {
-        var states = featureStates("EVENT");
+        // gender was filled in while entityType was PERSON, then entityType was changed
+        var states = featureStates("EVENT", "FEMALE", null);
 
-        // gender/occupation are hidden ...
-        assertThat(visibleNames(states)).doesNotContain("gender", "occupation");
+        // gender stays visible because it still holds a value, occupation (empty) is hidden
+        assertThat(visibleNames(states)).containsExactly("entityType", "gender", "time");
+        assertThat(staleNames(states)).containsExactly("gender");
+        assertThat(states.get(1).getValue()).isEqualTo("FEMALE");
+    }
 
-        // ... but their FeatureState still carries the previously entered value untouched.
-        var genderState = states.stream() //
-                .filter(fs -> "gender".equals(fs.getFeature().getName())) //
-                .findFirst().orElseThrow();
-        assertThat(genderState.getValue()).isEqualTo("FEMALE");
+    @Test
+    void thatClearingAStaleFeatureHidesIt()
+    {
+        var states = featureStates("EVENT", "FEMALE", null);
+        assertThat(staleNames(states)).containsExactly("gender");
 
-        // Switching the controlling feature back makes it visible again with the same value.
+        states.get(1).setValue(null);
+
+        assertThat(visibleNames(states)).containsExactly("entityType", "time");
+        assertThat(staleNames(states)).isEmpty();
+    }
+
+    @Test
+    void thatBlankValueDoesNotMakeAFeatureStale()
+    {
+        var states = featureStates("EVENT", "  ", "");
+
+        assertThat(visibleNames(states)).containsExactly("entityType", "time");
+        assertThat(staleNames(states)).isEmpty();
+    }
+
+    @Test
+    void thatFeatureVisibleByItsExpressionIsNotStale()
+    {
+        var states = featureStates("PERSON", "FEMALE", "ENGINEER");
+
+        assertThat(staleNames(states)).isEmpty();
+    }
+
+    @Test
+    void thatSwitchingControllingFeatureBackClearsStaleness()
+    {
+        var states = featureStates("EVENT", "FEMALE", "ENGINEER");
+        assertThat(staleNames(states)).containsExactly("gender", "occupation");
+
         states.get(0).setValue("PERSON");
-        assertThat(visibleNames(states)).contains("gender", "occupation");
-        assertThat(genderState.getValue()).isEqualTo("FEMALE");
+
+        assertThat(staleNames(states)).isEmpty();
+        assertThat(states.get(1).getValue()).isEqualTo("FEMALE");
+    }
+
+    @Test
+    void thatConceptFeatureWithValueIsShownAsStale()
+    {
+        var identifierFeature = new AnnotationFeature("gene_identifier", "kb:<ANY>");
+        identifierFeature.setVisibleIf("entityType == \"Gene\"");
+
+        var states = List.of( //
+                new FeatureState(VID.NONE_ID,
+                        new AnnotationFeature("entityType", "uima.cas.String"), "Protein"), //
+                new FeatureState(VID.NONE_ID, identifierFeature, "ncbigene:7157"));
+
+        assertThat(visibleNames(states)).containsExactly("entityType", "gene_identifier");
+        assertThat(staleNames(states)).containsExactly("gene_identifier");
+    }
+
+    @Test
+    void thatPrimitiveFeatureIsNeverStale()
+    {
+        // The CAS cannot distinguish an unset boolean from false, so primitive features are
+        // never kept visible on account of their value
+        var adultFeature = new AnnotationFeature("adult", "uima.cas.Boolean");
+        adultFeature.setVisibleIf("entityType == \"PERSON\"");
+
+        var states = List.of( //
+                new FeatureState(VID.NONE_ID,
+                        new AnnotationFeature("entityType", "uima.cas.String"), "EVENT"), //
+                new FeatureState(VID.NONE_ID, adultFeature, true));
+
+        assertThat(visibleNames(states)).containsExactly("entityType");
+        assertThat(staleNames(states)).isEmpty();
     }
 
     @Test
