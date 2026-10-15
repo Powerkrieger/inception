@@ -19,6 +19,7 @@ package de.tudarmstadt.ukp.inception.annotation.layer.relation.recommender;
 
 import static de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationLayerSupport.FEAT_REL_SOURCE;
 import static de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationLayerSupport.FEAT_REL_TARGET;
+import static de.tudarmstadt.ukp.inception.recommendation.api.model.LearningRecordUserAction.ACCEPTED;
 import static java.util.Comparator.comparingDouble;
 import static java.util.function.BinaryOperator.maxBy;
 import static java.util.function.Function.identity;
@@ -50,11 +51,15 @@ import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationAdapter;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationLayerSupport;
+import de.tudarmstadt.ukp.inception.annotation.layer.span.api.CreateSpanAnnotationRequest;
+import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanAdapter;
 import de.tudarmstadt.ukp.inception.recommendation.api.LearningRecordService;
 import de.tudarmstadt.ukp.inception.recommendation.api.RecommendationService;
 import de.tudarmstadt.ukp.inception.recommendation.api.SuggestionRenderer;
 import de.tudarmstadt.ukp.inception.recommendation.api.SuggestionSupportQuery;
+import de.tudarmstadt.ukp.inception.recommendation.api.event.RecommendationAcceptedEvent;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.AnnotationSuggestion;
+import de.tudarmstadt.ukp.inception.recommendation.api.model.LearningRecord;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.LearningRecordChangeLocation;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.LearningRecordUserAction;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.Position;
@@ -76,6 +81,12 @@ public class RelationSuggestionSupport
     private static final Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
     public static final String TYPE = "RELATION";
+
+    /**
+     * Suggestion type of span suggestions in learning records - {@code SpanSuggestionSupport.TYPE},
+     * which lives in a module this one does not depend on.
+     */
+    private static final String SPAN_SUGGESTION_TYPE = "SPAN";
 
     private final FeatureSupportRegistry featureSupportRegistry;
 
@@ -292,21 +303,74 @@ public class RelationSuggestionSupport
             return null;
         }
 
-        var annotation = (AnnotationFS) recommendationService.acceptSuggestion(aSessionOwner,
-                aDocument, aDataOwner, aCas, aPredictions, spanSuggestions.get(0), aLocation);
+        // Accepting the suggestions one by one through the span layer would let each pick its own
+        // target: with another annotation stacked at these offsets (a Protein where the relation
+        // means a Gene), the Gene's identifier would go to the Protein, whose identifier for genes
+        // is still empty. Nothing at these offsets agrees with the endpoint (else we would have
+        // found it above), so create the endpoint here and commit every suggestion to it.
+        var layer = schemaService.getLayer(spanSuggestions.get(0).getLayerId());
+        var adapter = (SpanAdapter) schemaService.getAdapter(layer);
+        try (var eventBatch = adapter.batchEvents()) {
+            var annotation = adapter.handle(CreateSpanAnnotationRequest.builder() //
+                    .withDocument(aDocument, aDataOwner, aCas) //
+                    .withRange(aBegin, aEnd) //
+                    .build());
 
-        // Accepting the others fills in the annotation just created - unless another one is
-        // stacked at the same offsets, which they might go to instead
-        if (selectAt(aCas, annotation.getType(), aBegin, aEnd).size() == 1) {
-            for (var other : spanSuggestions.subList(1, spanSuggestions.size())) {
-                if (other.getLayerId() == spanSuggestions.get(0).getLayerId()) {
-                    recommendationService.acceptSuggestion(aSessionOwner, aDocument, aDataOwner,
-                            aCas, aPredictions, other, aLocation);
+            try {
+                for (var suggestion : spanSuggestions) {
+                    if (suggestion.getLayerId() != layer.getId()) {
+                        continue;
+                    }
+
+                    var feature = schemaService.getFeature(suggestion.getFeature(), layer);
+                    commitLabel(aDocument, aDataOwner, adapter, annotation, feature, aPredictions,
+                            suggestion);
+                    hideSuggestion(suggestion, ACCEPTED);
+                    recordSpanAcceptance(aSessionOwner, aDocument, aDataOwner, adapter, feature,
+                            (SpanSuggestion) suggestion, annotation, aLocation);
                 }
             }
+            catch (Exception e) {
+                adapter.delete(aDocument, aDataOwner, aCas, VID.of(annotation));
+                throw e;
+            }
+
+            eventBatch.commit();
+            return annotation;
+        }
+    }
+
+    /**
+     * Like {@link #recordAndPublishAcceptance}, but for a span suggestion accepted along with a
+     * relation, which needs a span learning record.
+     */
+    private void recordSpanAcceptance(String aSessionOwner, SourceDocument aDocument,
+            String aDataOwner, SpanAdapter aAdapter, AnnotationFeature aFeature,
+            SpanSuggestion aSuggestion, AnnotationFS aAnnotation,
+            LearningRecordChangeLocation aLocation)
+    {
+        if (aAdapter.isSilenced()) {
+            return;
         }
 
-        return annotation;
+        var record = new LearningRecord();
+        record.setUser(aDataOwner);
+        record.setSourceDocument(aDocument);
+        record.setUserAction(ACCEPTED);
+        record.setOffsetBegin(aSuggestion.getBegin());
+        record.setOffsetEnd(aSuggestion.getEnd());
+        record.setOffsetBegin2(-1);
+        record.setOffsetEnd2(-1);
+        record.setTokenText(aSuggestion.getCoveredText());
+        record.setAnnotation(aSuggestion.getLabel());
+        record.setLayer(aFeature.getLayer());
+        record.setSuggestionType(SPAN_SUGGESTION_TYPE);
+        record.setChangeLocation(aLocation);
+        record.setAnnotationFeature(aFeature);
+        learningRecordService.logRecord(aSessionOwner, record);
+
+        aAdapter.publishEvent(() -> new RecommendationAcceptedEvent(this, aDocument, aDataOwner,
+                aAnnotation, aFeature, aSuggestion.getLabel()));
     }
 
     @Override
