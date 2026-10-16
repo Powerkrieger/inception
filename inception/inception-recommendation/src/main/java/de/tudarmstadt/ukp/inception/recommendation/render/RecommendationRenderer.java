@@ -20,6 +20,8 @@ package de.tudarmstadt.ukp.inception.recommendation.render;
 import static de.tudarmstadt.ukp.clarin.webanno.model.Mode.ANNOTATION;
 import static de.tudarmstadt.ukp.inception.recommendation.api.RecommendationService.KEY_RECOMMENDER_GENERAL_SETTINGS;
 import static de.tudarmstadt.ukp.inception.recommendation.api.model.SuggestionDocumentGroup.groupByType;
+import static de.tudarmstadt.ukp.inception.support.WebAnnoConst.SPAN_TYPE;
+import static java.util.Comparator.comparing;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.toMap;
@@ -158,7 +160,12 @@ public class RecommendationRenderer
         var suggestionSupportCache = new HashMap<SuggestionSupportQuery, Optional<SuggestionSupport>>();
         var featureCache = new HashMap<Pair<AnnotationLayer, String>, AnnotationFeature>();
 
-        for (var layer : aRequest.getVisibleLayers()) {
+        // Span suggestions go first so that suggested arcs can attach to suggested spans
+        var layers = aRequest.getVisibleLayers().stream() //
+                .sorted(comparing(layer -> !SPAN_TYPE.equals(layer.getType()))) //
+                .toList();
+
+        for (var layer : layers) {
             if (!layer.isEnabled() || layer.isReadonly()) {
                 continue;
             }

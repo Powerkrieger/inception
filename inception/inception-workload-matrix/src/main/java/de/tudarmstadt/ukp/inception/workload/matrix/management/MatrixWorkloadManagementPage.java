@@ -323,6 +323,9 @@ public class MatrixWorkloadManagementPage
         bulkActionDropdown
                 .add(new LambdaAjaxLink("bulkResumeCuration", this::actionBulkResumeCuration)
                         .add(enabledWhen((this::onlyCurationCellsSelected))));
+        bulkActionDropdown.add(
+                new LambdaAjaxLink("bulkReturnToAnnotation", this::actionBulkReturnToAnnotation)
+                        .add(enabledWhen((this::onlyCurationCellsSelected))));
         bulkActionDropdown.add(new LambdaAjaxLink("bulkOpen", this::actionBulkOpen)
                 .add(enabledWhen((this::onlyAnnotationCellsSelected))));
         bulkActionDropdown.add(new LambdaAjaxLink("bulkClose", this::actionBulkClose)
@@ -947,6 +950,43 @@ public class MatrixWorkloadManagementPage
         aTarget.add(documentMatrix, stateIcon, projectDocumentStatsPanel);
     }
 
+    private void actionBulkReturnToAnnotation(AjaxRequestTarget aTarget)
+    {
+        actionReturnToAnnotation(aTarget, selectedSourceDocuments());
+    }
+
+    /**
+     * Takes documents out of curation without discarding the curation done so far (unlike resetting
+     * the curation). The curation document is kept and loaded as it is when the curation is
+     * resumed; annotators who had finished can be resumed to edit again.
+     */
+    private void actionReturnToAnnotation(AjaxRequestTarget aTarget,
+            Collection<SourceDocument> aDocuments)
+    {
+        var documents = aDocuments.stream() //
+                .filter(doc -> doc.getState() == CURATION_IN_PROGRESS
+                        || doc.getState() == CURATION_FINISHED) //
+                .toList();
+
+        if (documents.isEmpty()) {
+            info("None of the selected documents is in curation.");
+            aTarget.addChildren(getPage(), IFeedback.class);
+            return;
+        }
+
+        documentService.bulkSetSourceDocumentState(documents, ANNOTATION_IN_PROGRESS);
+
+        // Derive the annotation state from the annotators' documents, as if curation had not begun
+        matrixWorkloadExtension.recalculate(getProject());
+
+        success(format("%d document(s) returned to annotation. The curation done so far is kept "
+                + "and is continued when curation resumes.", documents.size()));
+        aTarget.addChildren(getPage(), IFeedback.class);
+
+        reloadMatrixData();
+        aTarget.add(documentMatrix, stateIcon, projectDocumentStatsPanel);
+    }
+
     record Cell(SourceDocument doc, AnnotationSet set) {};
 
     private void actionBulkExportDocument(AjaxRequestTarget aTarget)
@@ -1316,6 +1356,8 @@ public class MatrixWorkloadManagementPage
         var document = aEvent.getSourceDocument();
         items.add(new LambdaMenuItem("Export",
                 _target -> actionExportAnnotationDocument(_target, document, CURATION_SET)));
+        items.add(new LambdaMenuItem("Return to annotation",
+                _target -> actionReturnToAnnotation(_target, List.of(document))));
         items.add(new LambdaMenuItem("Reset",
                 _target -> actionResetCurationDocument(_target, document)));
 

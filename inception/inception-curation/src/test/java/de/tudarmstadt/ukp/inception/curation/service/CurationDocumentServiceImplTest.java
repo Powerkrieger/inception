@@ -404,6 +404,33 @@ class CurationDocumentServiceImplTest
     }
 
     @Test
+    void isInitialMergeRequired_ShouldMergeDocumentWithoutCurationCas() throws Exception
+    {
+        documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);
+
+        try (var session = openNested(true)) {
+            assertThat(sut.isInitialMergeRequired(testDocument)) //
+                    .as("A document entering curation for the first time needs an initial merge") //
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void isInitialMergeRequired_ShouldKeepCurationOfDocumentReturnedToAnnotation() throws Exception
+    {
+        // A document returned to annotation keeps its curation CAS - an initial merge would clear
+        // it when curation resumes
+        documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);
+        writeCurationCasFor(testDocument);
+
+        try (var session = openNested(true)) {
+            assertThat(sut.isInitialMergeRequired(testDocument)) //
+                    .as("The curation kept for a document returned to annotation is not merged over") //
+                    .isFalse();
+        }
+    }
+
+    @Test
     void markCurationInProgress_ShouldPutDocumentIntoCuration()
     {
         documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);

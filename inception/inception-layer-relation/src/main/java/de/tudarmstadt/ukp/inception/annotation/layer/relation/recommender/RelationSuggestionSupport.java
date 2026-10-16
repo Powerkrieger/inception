@@ -19,17 +19,23 @@ package de.tudarmstadt.ukp.inception.annotation.layer.relation.recommender;
 
 import static de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationLayerSupport.FEAT_REL_SOURCE;
 import static de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationLayerSupport.FEAT_REL_TARGET;
+import static de.tudarmstadt.ukp.inception.recommendation.api.model.LearningRecordUserAction.ACCEPTED;
+import static java.util.Comparator.comparingDouble;
+import static java.util.function.BinaryOperator.maxBy;
+import static java.util.function.Function.identity;
+import static java.util.stream.Collectors.toMap;
 import static org.apache.uima.cas.text.AnnotationPredicates.colocated;
 import static org.apache.uima.fit.util.CasUtil.select;
 import static org.apache.uima.fit.util.CasUtil.selectAt;
 
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 
 import org.apache.commons.collections4.MultiMapUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.collections4.MultiValuedMap;
 import org.apache.commons.collections4.multimap.ArrayListValuedHashMap;
 import org.apache.uima.cas.AnnotationBaseFS;
@@ -37,7 +43,6 @@ import org.apache.uima.cas.CAS;
 import org.apache.uima.cas.Type;
 import org.apache.uima.cas.text.AnnotationFS;
 import org.apache.uima.fit.util.CasUtil;
-import org.apache.uima.jcas.tcas.Annotation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -46,17 +51,23 @@ import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationAdapter;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationLayerSupport;
+import de.tudarmstadt.ukp.inception.annotation.layer.span.api.CreateSpanAnnotationRequest;
+import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanAdapter;
 import de.tudarmstadt.ukp.inception.recommendation.api.LearningRecordService;
 import de.tudarmstadt.ukp.inception.recommendation.api.RecommendationService;
 import de.tudarmstadt.ukp.inception.recommendation.api.SuggestionRenderer;
 import de.tudarmstadt.ukp.inception.recommendation.api.SuggestionSupportQuery;
+import de.tudarmstadt.ukp.inception.recommendation.api.event.RecommendationAcceptedEvent;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.AnnotationSuggestion;
+import de.tudarmstadt.ukp.inception.recommendation.api.model.LearningRecord;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.LearningRecordChangeLocation;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.LearningRecordUserAction;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.Position;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.Predictions;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.RelationPosition;
 import de.tudarmstadt.ukp.inception.recommendation.api.model.RelationSuggestion;
+import de.tudarmstadt.ukp.inception.recommendation.api.model.RelationSuggestion.Endpoint;
+import de.tudarmstadt.ukp.inception.recommendation.api.model.SpanSuggestion;
 import de.tudarmstadt.ukp.inception.recommendation.api.recommender.ExtractionContext;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
@@ -70,6 +81,12 @@ public class RelationSuggestionSupport
     private static final Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
     public static final String TYPE = "RELATION";
+
+    /**
+     * Suggestion type of span suggestions in learning records - {@code SpanSuggestionSupport.TYPE},
+     * which lives in a module this one does not depend on.
+     */
+    private static final String SPAN_SUGGESTION_TYPE = "SPAN";
 
     private final FeatureSupportRegistry featureSupportRegistry;
 
@@ -178,8 +195,12 @@ public class RelationSuggestionSupport
                 continue;
             }
 
+            var sourceEndpoint = suggestion.getSourceEndpoint();
+            var targetEndpoint = suggestion.getTargetEndpoint();
             if (colocated(source, sourceBegin, sourceEnd)
-                    && colocated(target, targetBegin, targetEnd)) {
+                    && colocated(target, targetBegin, targetEnd)
+                    && (sourceEndpoint == null || sourceEndpoint.matches(source))
+                    && (targetEndpoint == null || targetEndpoint.matches(target))) {
                 candidates.add(relationCandidate);
             }
         }
@@ -212,10 +233,12 @@ public class RelationSuggestionSupport
 
             // We did not find a relation for this suggestion, so we create a new one
             if (annotation == null) {
-                var source = selectAt(aCas, attachType, sourceBegin, sourceEnd).stream().findFirst()
-                        .orElse(null);
-                var target = selectAt(aCas, attachType, targetBegin, targetEnd).stream().findFirst()
-                        .orElse(null);
+                var source = findOrAcceptEndpoint(aSessionOwner, aDocument, aDataOwner, aCas,
+                        aPredictions, aLocation, attachType, sourceBegin, sourceEnd,
+                        suggestion.getSourceEndpoint());
+                var target = findOrAcceptEndpoint(aSessionOwner, aDocument, aDataOwner, aCas,
+                        aPredictions, aLocation, attachType, targetBegin, targetEnd,
+                        suggestion.getTargetEndpoint());
 
                 if (source == null || target == null) {
                     String msg = "Cannot find source or target annotation for upserting relation";
@@ -245,6 +268,109 @@ public class RelationSuggestionSupport
             eventBatch.commit();
             return annotation;
         }
+    }
+
+    /**
+     * The annotation at the given offsets or, if there is none yet, the one created by accepting
+     * the span suggestion there that the relation suggestion was drawn to.
+     */
+    private AnnotationFS findOrAcceptEndpoint(String aSessionOwner, SourceDocument aDocument,
+            String aDataOwner, CAS aCas, Predictions aPredictions,
+            LearningRecordChangeLocation aLocation, Type aAttachType, int aBegin, int aEnd,
+            Endpoint aEndpoint)
+        throws AnnotationException
+    {
+        var existing = RelationEndpoints.findAnnotation(aCas, aAttachType, aBegin, aEnd, aEndpoint);
+        if (existing.isPresent() || aPredictions == null) {
+            return existing.orElse(null);
+        }
+
+        // The best agreeing suggestion per feature, e.g. the entity type and its identifier
+        var spanSuggestions = aPredictions.getSuggestionsByDocument(aDocument).stream() //
+                .filter(SpanSuggestion.class::isInstance) //
+                .map(SpanSuggestion.class::cast) //
+                .filter(AnnotationSuggestion::isVisible) //
+                .filter(s -> RelationEndpoints.isSuggestedAt(s,
+                        schemaService.getLayer(s.getLayerId()).getName(), aAttachType, aBegin, aEnd,
+                        aEndpoint)) //
+                .collect(toMap(s -> Pair.of(s.getLayerId(), s.getFeature()), identity(),
+                        maxBy(comparingDouble(AnnotationSuggestion::getScore))::apply,
+                        LinkedHashMap::new))
+                .values().stream() //
+                .sorted(comparingDouble(AnnotationSuggestion::getScore).reversed()) //
+                .toList();
+        if (spanSuggestions.isEmpty()) {
+            return null;
+        }
+
+        // Accepting the suggestions one by one through the span layer would let each pick its own
+        // target: with another annotation stacked at these offsets (a Protein where the relation
+        // means a Gene), the Gene's identifier would go to the Protein, whose identifier for genes
+        // is still empty. Nothing at these offsets agrees with the endpoint (else we would have
+        // found it above), so create the endpoint here and commit every suggestion to it.
+        var layer = schemaService.getLayer(spanSuggestions.get(0).getLayerId());
+        var adapter = (SpanAdapter) schemaService.getAdapter(layer);
+        try (var eventBatch = adapter.batchEvents()) {
+            var annotation = adapter.handle(CreateSpanAnnotationRequest.builder() //
+                    .withDocument(aDocument, aDataOwner, aCas) //
+                    .withRange(aBegin, aEnd) //
+                    .build());
+
+            try {
+                for (var suggestion : spanSuggestions) {
+                    if (suggestion.getLayerId() != layer.getId()) {
+                        continue;
+                    }
+
+                    var feature = schemaService.getFeature(suggestion.getFeature(), layer);
+                    commitLabel(aDocument, aDataOwner, adapter, annotation, feature, aPredictions,
+                            suggestion);
+                    hideSuggestion(suggestion, ACCEPTED);
+                    recordSpanAcceptance(aSessionOwner, aDocument, aDataOwner, adapter, feature,
+                            (SpanSuggestion) suggestion, annotation, aLocation);
+                }
+            }
+            catch (Exception e) {
+                adapter.delete(aDocument, aDataOwner, aCas, VID.of(annotation));
+                throw e;
+            }
+
+            eventBatch.commit();
+            return annotation;
+        }
+    }
+
+    /**
+     * Like {@link #recordAndPublishAcceptance}, but for a span suggestion accepted along with a
+     * relation, which needs a span learning record.
+     */
+    private void recordSpanAcceptance(String aSessionOwner, SourceDocument aDocument,
+            String aDataOwner, SpanAdapter aAdapter, AnnotationFeature aFeature,
+            SpanSuggestion aSuggestion, AnnotationFS aAnnotation,
+            LearningRecordChangeLocation aLocation)
+    {
+        if (aAdapter.isSilenced()) {
+            return;
+        }
+
+        var record = new LearningRecord();
+        record.setUser(aDataOwner);
+        record.setSourceDocument(aDocument);
+        record.setUserAction(ACCEPTED);
+        record.setOffsetBegin(aSuggestion.getBegin());
+        record.setOffsetEnd(aSuggestion.getEnd());
+        record.setOffsetBegin2(-1);
+        record.setOffsetEnd2(-1);
+        record.setTokenText(aSuggestion.getCoveredText());
+        record.setAnnotation(aSuggestion.getLabel());
+        record.setLayer(aFeature.getLayer());
+        record.setSuggestionType(SPAN_SUGGESTION_TYPE);
+        record.setChangeLocation(aLocation);
+        record.setAnnotationFeature(aFeature);
+        learningRecordService.logRecord(aSessionOwner, record);
+
+        aAdapter.publishEvent(() -> new RecommendationAcceptedEvent(this, aDocument, aDataOwner,
+                aAnnotation, aFeature, aSuggestion.getLabel()));
     }
 
     @Override
@@ -292,8 +418,6 @@ public class RelationSuggestionSupport
         var sourceFeature = ctx.getPredictedType().getFeatureByBaseName(FEAT_REL_SOURCE);
         var targetFeature = ctx.getPredictedType().getFeatureByBaseName(FEAT_REL_TARGET);
 
-        var adapterCache = new HashMap<String, TypeAdapter>();
-
         var result = new ArrayList<AnnotationSuggestion>();
         for (var predictedFS : ctx.getPredictionCas().select(ctx.getPredictedType())) {
             if (!predictedFS.getBooleanValue(ctx.getPredictionFeature())) {
@@ -308,18 +432,6 @@ public class RelationSuggestionSupport
                 continue;
             }
 
-            var sourceAdapter = adapterCache.computeIfAbsent(source.getType().getName(),
-                    $ -> schemaService.findAdapter(ctx.getProject(), source));
-            var targetAdapter = adapterCache.computeIfAbsent(target.getType().getName(),
-                    $ -> schemaService.findAdapter(ctx.getProject(), target));
-
-            var originalSource = findEquivalentSpan(sourceAdapter, ctx.getOriginalCas(), source);
-            var originalTarget = findEquivalentSpan(targetAdapter, ctx.getOriginalCas(), target);
-            if (originalSource.isEmpty() || originalTarget.isEmpty()) {
-                LOG.debug("Unable to find source or target of predicted relation in original CAS");
-                continue;
-            }
-
             var autoAcceptMode = getAutoAcceptMode(predictedFS, ctx.getModeFeature());
             var labels = getPredictedLabels(predictedFS, ctx.getLabelFeature(),
                     ctx.isMultiLabels());
@@ -328,13 +440,17 @@ public class RelationSuggestionSupport
             var correction = predictedFS.getBooleanValue(ctx.getCorrectionFeature());
             var correctionExplanation = predictedFS
                     .getStringValue(ctx.getCorrectionExplanationFeature());
-            var position = new RelationPosition(originalSource.get(), originalTarget.get());
+            // Ends need not be annotated yet: a relation suggestion is shown and accepted with the
+            // span suggestions there that agree with its endpoints
+            var position = new RelationPosition(source, target);
 
             for (var label : labels) {
                 var suggestion = RelationSuggestion.builder() //
                         .withId(RelationSuggestion.NEW_ID) //
                         .withContext(ctx) //
                         .withPosition(position) //
+                        .withSourceEndpoint(Endpoint.of(source)) //
+                        .withTargetEndpoint(Endpoint.of(target)) //
                         .withLabel(label) //
                         .withUiLabel(label) //
                         .withCorrection(correction) //
@@ -347,23 +463,6 @@ public class RelationSuggestionSupport
             }
         }
         return result;
-    }
-
-    /**
-     * Locates an annotation in the given CAS which is equivalent of the provided annotation.
-     *
-     * @param aOriginalCas
-     *            the original CAS.
-     * @param aSpan
-     *            an annotation in the prediction CAS. return the equivalent in the original CAS.
-     */
-    private static Optional<Annotation> findEquivalentSpan(TypeAdapter aAdapter, CAS aOriginalCas,
-            AnnotationFS aSpan)
-    {
-        return aOriginalCas.<Annotation> select(aSpan.getType()) //
-                .at(aSpan) //
-                .filter(canditeSpan -> aAdapter.isSamePosition(canditeSpan, aSpan)) //
-                .findFirst();
     }
 
     private List<AnnotationFS> getAnnotationsInWindow(CAS aCas, Type type, int aWindowBegin,
