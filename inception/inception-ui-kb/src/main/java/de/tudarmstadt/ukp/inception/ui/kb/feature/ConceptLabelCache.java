@@ -20,6 +20,7 @@ package de.tudarmstadt.ukp.inception.ui.kb.feature;
 import java.util.AbstractMap.SimpleEntry;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -81,6 +82,38 @@ public class ConceptLabelCache
     public KBHandle get(AnnotationFeature aFeature, String aRepositoryId, String aLabel)
     {
         return labelCache.get(new Key(aFeature, aRepositoryId, aLabel));
+    }
+
+    /**
+     * Look the identifier up in each knowledge base in turn - a feature's primary knowledge base
+     * followed by its fallbacks - and return the handle from the first one that knows it. If none
+     * does, the primary knowledge base's (identifier-only) handle is returned. Each knowledge
+     * base's answer is cached under its own key.
+     *
+     * @param aRepositoryIds
+     *            the knowledge bases in order; empty means any knowledge base in the project
+     */
+    public KBHandle getFromFirstKnowing(AnnotationFeature aFeature, List<String> aRepositoryIds,
+            String aLabel)
+    {
+        if (aRepositoryIds.isEmpty()) {
+            return get(aFeature, (String) null, aLabel);
+        }
+
+        KBHandle primary = null;
+        for (var repositoryId : aRepositoryIds) {
+            var handle = get(aFeature, repositoryId, aLabel);
+            // Unknown identifiers come back as identifier-only handles (see loadLabelValue)
+            if (handle.getName() != null) {
+                return handle;
+            }
+
+            if (primary == null) {
+                primary = handle;
+            }
+        }
+
+        return primary;
     }
 
     public Map<Key, KBHandle> getAll(Collection<Key> aKeys)

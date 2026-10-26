@@ -17,6 +17,8 @@
  */
 package de.tudarmstadt.ukp.inception.conceptlinking.config;
 
+import java.time.Duration;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -61,6 +63,20 @@ public class EntityLinkingPropertiesImpl
      * retrieve concepts for constructing the semantic signature.
      */
     private int signatureQueryLimit = Integer.MAX_VALUE;
+
+    /**
+     * How long to wait for a feature's fallback knowledge bases. A fallback that has not answered
+     * by then is left out, so a slow fallback never holds back the primary knowledge base's
+     * candidates.
+     */
+    private Duration fallbackTimeout = Duration.ofSeconds(5);
+
+    /**
+     * Share of the {@link #candidateDisplayLimit displayed candidates} kept free for a feature's
+     * fallback knowledge bases. They are listed after the primary knowledge base's candidates,
+     * which on their own often fill the whole list.
+     */
+    private double fallbackDisplayShare = 0.25;
 
     @Override
     public int getCacheSize()
@@ -115,5 +131,27 @@ public class EntityLinkingPropertiesImpl
     public void setSignatureQueryLimit(int signatureQueryLimit)
     {
         this.signatureQueryLimit = signatureQueryLimit;
+    }
+
+    @Override
+    public Duration getFallbackTimeout()
+    {
+        return fallbackTimeout;
+    }
+
+    public void setFallbackTimeout(Duration aFallbackTimeout)
+    {
+        fallbackTimeout = aFallbackTimeout;
+    }
+
+    @Override
+    public double getFallbackDisplayShare()
+    {
+        return fallbackDisplayShare;
+    }
+
+    public void setFallbackDisplayShare(double aFallbackDisplayShare)
+    {
+        fallbackDisplayShare = aFallbackDisplayShare;
     }
 }
