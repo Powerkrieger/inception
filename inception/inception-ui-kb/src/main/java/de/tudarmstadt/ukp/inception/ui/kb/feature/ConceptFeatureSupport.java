@@ -182,7 +182,8 @@ public class ConceptFeatureSupport
     public KBHandle getConceptHandle(AnnotationFeature aFeature, String aIdentifier,
             ConceptFeatureTraits traits)
     {
-        return labelCache.get(aFeature, traits.getRepositoryId(), aIdentifier);
+        return labelCache.getFromFirstKnowing(aFeature, traits.getRepositoryIdsInOrder(),
+                aIdentifier);
     }
 
     @SuppressWarnings("unchecked")

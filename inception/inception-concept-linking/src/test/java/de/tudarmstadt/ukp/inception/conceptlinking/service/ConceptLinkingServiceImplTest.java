@@ -23,6 +23,7 @@ import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.transaction.annotation.Transactional;
 
+import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.inception.conceptlinking.config.EntityLinkingPropertiesImpl;
 import de.tudarmstadt.ukp.inception.conceptlinking.util.TestFixtures;
 import de.tudarmstadt.ukp.inception.documents.api.RepositoryPropertiesImpl;
@@ -67,6 +69,8 @@ public class ConceptLinkingServiceImplTest
     private KnowledgeBaseService kbService;
     private ConceptLinkingServiceImpl sut;
 
+    private TestFixtures testFixtures;
+    private Project project;
     private KnowledgeBase kb;
 
     @BeforeEach
@@ -77,7 +81,7 @@ public class ConceptLinkingServiceImplTest
         repoProps.setPath(temporaryFolder);
 
         var entityManager = testEntityManager.getEntityManager();
-        var testFixtures = new TestFixtures(testEntityManager);
+        testFixtures = new TestFixtures(testEntityManager);
         kbService = new KnowledgeBaseServiceImpl(repoProps, kbProperties, entityManager);
 
         sut = new ConceptLinkingServiceImpl(kbService, new EntityLinkingPropertiesImpl(), repoProps,
@@ -85,7 +89,7 @@ public class ConceptLinkingServiceImplTest
         sut.afterPropertiesSet();
         sut.init();
 
-        var project = testFixtures.createProject(PROJECT_NAME);
+        project = testFixtures.createProject(PROJECT_NAME);
         kb = testFixtures.buildKnowledgeBase(project, KB_NAME, Reification.NONE);
     }
 
@@ -123,12 +127,86 @@ public class ConceptLinkingServiceImplTest
         kbService.removeKnowledgeBase(kb);
     }
 
+    @Test
+    public void thatFallbackCandidatesAreListedAfterPrimaryOnes() throws Exception
+    {
+        var primary = localKnowledgeBase("primary", "data/molecules-primary.ttl");
+        var fallback = localKnowledgeBase("fallback", "data/molecules-fallback.ttl");
+
+        var handles = sut.getLinkingInstancesInKBScope(
+                List.of(primary.getRepositoryId(), fallback.getRepositoryId()), null, ANY_OBJECT,
+                "gluc", null, -1, null, project);
+
+        // Each knowledge base's candidates are ranked on their own, the primary's come first
+        assertThat(handles.subList(0, 3)).extracting(KBHandle::getIdentifier)
+                .containsExactlyInAnyOrder( //
+                        "http://example.org/primary#glucose", //
+                        "http://example.org/primary#glucose-6-phosphate", //
+                        "http://example.org/primary#glucuronate");
+        assertThat(handles.subList(3, 5)).extracting(KBHandle::getIdentifier)
+                .containsExactlyInAnyOrder( //
+                        "http://example.org/fallback#glucose", //
+                        "http://example.org/fallback#glucosamine");
+        assertThat(handles).extracting(KBHandle::getRank).containsExactly(1, 2, 3, 4, 5);
+    }
+
+    @Test
+    public void thatPrimaryCandidatesLeaveRoomForFallbacks() throws Exception
+    {
+        var properties = new EntityLinkingPropertiesImpl();
+        properties.setCandidateDisplayLimit(2);
+        properties.setFallbackDisplayShare(0.5);
+        sut = new ConceptLinkingServiceImpl(kbService, properties, new RepositoryPropertiesImpl(),
+                emptyList());
+        sut.afterPropertiesSet();
+        sut.init();
+
+        var primary = localKnowledgeBase("primary", "data/molecules-primary.ttl");
+        var fallback = localKnowledgeBase("fallback", "data/molecules-fallback.ttl");
+
+        var handles = sut.getLinkingInstancesInKBScope(
+                List.of(primary.getRepositoryId(), fallback.getRepositoryId()), null, ANY_OBJECT,
+                "gluc", null, -1, null, project);
+
+        // One of the two displayed slots goes to the best primary candidate, the other is kept
+        // for the fallback - without the reservation, the primary would fill both
+        assertThat(handles.subList(0, 2)).extracting(KBHandle::getIdentifier).satisfiesExactly( //
+                id -> assertThat(id).startsWith("http://example.org/primary#"),
+                id -> assertThat(id).startsWith("http://example.org/fallback#"));
+    }
+
+    @Test
+    public void thatSinglePrimaryKnowledgeBaseIsSearchedAlone() throws Exception
+    {
+        var primary = localKnowledgeBase("primary", "data/molecules-primary.ttl");
+        localKnowledgeBase("fallback", "data/molecules-fallback.ttl");
+
+        var handles = sut.getLinkingInstancesInKBScope(primary.getRepositoryId(), null, ANY_OBJECT,
+                "gluc", null, -1, null, project);
+
+        assertThat(handles).extracting(KBHandle::getIdentifier)
+                .allMatch(id -> id.startsWith("http://example.org/primary#"));
+    }
+
+    private KnowledgeBase localKnowledgeBase(String aName, String aResourceName) throws Exception
+    {
+        var localKb = testFixtures.buildKnowledgeBase(project, aName, Reification.NONE);
+        kbService.registerKnowledgeBase(localKb, kbService.getNativeConfig());
+        importKnowledgeBase(localKb, aResourceName);
+        return localKb;
+    }
+
     private void importKnowledgeBase(String resourceName) throws Exception
+    {
+        importKnowledgeBase(kb, resourceName);
+    }
+
+    private void importKnowledgeBase(KnowledgeBase aKB, String resourceName) throws Exception
     {
         var classLoader = getClass().getClassLoader();
         var fileName = classLoader.getResource(resourceName).getFile();
         try (var is = classLoader.getResourceAsStream(resourceName)) {
-            kbService.importData(kb, fileName, is);
+            kbService.importData(aKB, fileName, is);
         }
     }
 

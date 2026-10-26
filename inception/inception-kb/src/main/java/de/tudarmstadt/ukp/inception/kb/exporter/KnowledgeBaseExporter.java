@@ -22,6 +22,7 @@ import static java.util.Arrays.asList;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -313,8 +314,25 @@ public class KnowledgeBaseExporter
                                             + "]");
                         }
 
-                        if (traits != null && exportedKB.getId().equals(traits.getRepositoryId())) {
+                        if (traits == null) {
+                            continue;
+                        }
+
+                        var changed = false;
+                        if (exportedKB.getId().equals(traits.getRepositoryId())) {
                             traits.setRepositoryId(kb.getRepositoryId());
+                            changed = true;
+                        }
+
+                        // Fallback knowledge bases are re-pinned the same way as the primary one
+                        var fallbacks = new ArrayList<>(traits.getFallbackRepositoryIds());
+                        if (Collections.replaceAll(fallbacks, exportedKB.getId(),
+                                kb.getRepositoryId())) {
+                            traits.setFallbackRepositoryIds(fallbacks);
+                            changed = true;
+                        }
+
+                        if (changed) {
                             feature.setTraits(JSONUtil.toJsonString(traits));
                             schemaService.createFeature(feature);
                         }

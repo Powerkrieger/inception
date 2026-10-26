@@ -27,6 +27,7 @@ import static java.util.Collections.emptySet;
 import static java.util.Collections.unmodifiableList;
 import static java.util.Comparator.comparingInt;
 import static java.util.concurrent.CompletableFuture.supplyAsync;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.stream.Collectors.toCollection;
 import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
@@ -39,10 +40,14 @@ import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang3.ClassUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -556,15 +561,27 @@ public class ConceptLinkingServiceImpl
             ConceptFeatureValueType aValueType, String aQuery, String aMention,
             int aMentionBeginOffset, CAS aCas, Project aProject)
     {
+        return getLinkingInstancesInKBScope(
+                aRepositoryId != null ? List.of(aRepositoryId) : List.of(), aConceptScope,
+                aValueType, aQuery, aMention, aMentionBeginOffset, aCas, aProject);
+    }
+
+    @Override
+    public List<KBHandle> getLinkingInstancesInKBScope(List<String> aRepositoryIds,
+            String aConceptScope, ConceptFeatureValueType aValueType, String aQuery,
+            String aMention, int aMentionBeginOffset, CAS aCas, Project aProject)
+    {
         // Sanitize query by removing typical wildcard characters
         var query = aQuery.replaceAll("[*?]", "").trim();
 
         // Determine which knowledge bases to query
         var knowledgeBases = new ArrayList<KnowledgeBase>();
-        if (aRepositoryId != null) {
-            kbService.getKnowledgeBaseById(aProject, aRepositoryId) //
-                    .filter(KnowledgeBase::isEnabled) //
-                    .ifPresent(knowledgeBases::add);
+        if (!aRepositoryIds.isEmpty()) {
+            for (var repositoryId : aRepositoryIds) {
+                kbService.getKnowledgeBaseById(aProject, repositoryId) //
+                        .filter(KnowledgeBase::isEnabled) //
+                        .ifPresent(knowledgeBases::add);
+            }
         }
         else {
             knowledgeBases.addAll(kbService.getEnabledKnowledgeBases(aProject));
@@ -584,14 +601,103 @@ public class ConceptLinkingServiceImpl
             }
         }
 
-        // Query the knowledge bases for candidates
-        var candidates = new HashSet<KBHandle>();
-        for (var kb : knowledgeBases) {
-            candidates.addAll(generateCandidates(kb, aConceptScope, aValueType, query, aMention));
+        // Without a primary knowledge base (or with nothing but the primary left to ask), all
+        // knowledge bases are equal: rank their candidates together
+        if (aRepositoryIds.isEmpty() || knowledgeBases.size() == 1) {
+            var scope = aRepositoryIds.isEmpty()
+                    || aRepositoryIds.get(0).equals(knowledgeBases.get(0).getRepositoryId())
+                            ? aConceptScope
+                            : null;
+            var candidates = new HashSet<KBHandle>();
+            for (var kb : knowledgeBases) {
+                candidates.addAll(generateCandidates(kb, scope, aValueType, query, aMention));
+            }
+
+            // Rank the candidates and return them
+            return rankCandidates(query, aMention, candidates, aCas, aMentionBeginOffset);
         }
 
-        // Rank the candidates and return them
-        return rankCandidates(query, aMention, candidates, aCas, aMentionBeginOffset);
+        return getLinkingInstancesWithFallbacks(aRepositoryIds.get(0), knowledgeBases,
+                aConceptScope, aValueType, query, aMention, aMentionBeginOffset, aCas);
+    }
+
+    /**
+     * Query the primary knowledge base and its fallbacks in parallel, rank each one's candidates on
+     * their own and list them in order. The primary knowledge base is always waited for; the
+     * fallbacks only until the configured timeout (counted from when the queries were sent).
+     */
+    private List<KBHandle> getLinkingInstancesWithFallbacks(String aPrimaryRepositoryId,
+            List<KnowledgeBase> aKnowledgeBases, String aConceptScope,
+            ConceptFeatureValueType aValueType, String aQuery, String aMention,
+            int aMentionBeginOffset, CAS aCas)
+    {
+        var deadline = currentTimeMillis() + properties.getFallbackTimeout().toMillis();
+        var queries = new ArrayList<CompletableFuture<Set<KBHandle>>>();
+        for (var kb : aKnowledgeBases) {
+            // A scope is a concept from the primary knowledge base, so it can't restrict others
+            var scope = isPrimary(kb, aPrimaryRepositoryId) ? aConceptScope : null;
+            queries.add(
+                    supplyAsync(() -> generateCandidates(kb, scope, aValueType, aQuery, aMention)));
+        }
+
+        var primary = new ArrayList<KBHandle>();
+        var fallbacks = new ArrayList<KBHandle>();
+        for (var i = 0; i < aKnowledgeBases.size(); i++) {
+            var kb = aKnowledgeBases.get(i);
+            Set<KBHandle> candidates;
+            if (isPrimary(kb, aPrimaryRepositoryId)) {
+                candidates = queries.get(i).join();
+            }
+            else {
+                try {
+                    candidates = queries.get(i).get(Math.max(0, deadline - currentTimeMillis()),
+                            MILLISECONDS);
+                }
+                catch (TimeoutException e) {
+                    LOG.warn("Fallback knowledge base {} did not answer within {} - leaving it out",
+                            kb, properties.getFallbackTimeout());
+                    queries.get(i).cancel(true);
+                    continue;
+                }
+                catch (ExecutionException e) {
+                    LOG.error("Fallback knowledge base {} failed - leaving it out", kb,
+                            e.getCause());
+                    continue;
+                }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+
+            var ranked = rankCandidates(aQuery, aMention, candidates, aCas, aMentionBeginOffset);
+            (isPrimary(kb, aPrimaryRepositoryId) ? primary : fallbacks).addAll(ranked);
+        }
+
+        // The primary knowledge base's candidates alone often fill the whole list the editor
+        // displays, which would hide the fallbacks entirely - keep a share of it for them.
+        var displayLimit = properties.getCandidateDisplayLimit();
+        var reserved = Math.min(fallbacks.size(),
+                (int) Math.round(displayLimit * properties.getFallbackDisplayShare()));
+
+        var results = new LinkedHashMap<String, KBHandle>();
+        primary.stream() //
+                .limit(Math.max(0, displayLimit - reserved)) //
+                .forEach(handle -> results.putIfAbsent(handle.getIdentifier(), handle));
+        fallbacks.forEach(handle -> results.putIfAbsent(handle.getIdentifier(), handle));
+
+        var rank = 1;
+        for (var handle : results.values()) {
+            handle.setRank(rank);
+            rank++;
+        }
+
+        return List.copyOf(results.values());
+    }
+
+    private static boolean isPrimary(KnowledgeBase aKB, String aPrimaryRepositoryId)
+    {
+        return aPrimaryRepositoryId.equals(aKB.getRepositoryId());
     }
 
     /**

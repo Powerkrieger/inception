@@ -48,6 +48,17 @@ you are looking for, try entering the IRI. Some knowledge bases (e.g. Wikidata) 
 proper distinction between classes and instances. Try configuring the *Allowed values* in
 the feature settings to *any* to compensate.
 
+.Fallback knowledge bases
+A concept feature bound to a specific knowledge base can name further *fallback knowledge bases* in
+its feature settings. They are searched together with the main knowledge base, but their candidates
+are always listed after the main knowledge base's - so the main knowledge base stays the preferred
+source and a fallback only comes into play for what the main one lacks. To keep the fallbacks visible
+even when the main knowledge base alone yields a full list, a share of the dropdown (25% by default,
+`knowledge-base.entity-linking.fallback-display-share`) is kept free for them. A fallback that does
+not answer within 5 seconds (`knowledge-base.entity-linking.fallback-timeout`) is left out, so a slow
+fallback never holds back the main knowledge base's candidates. Labels of linked concepts are looked
+up in the same order.
+
 .Browsing the knowledge base
 Instead of searching a concept using the auto-complete field, you can also browse the knowledge
 base. However, this is only possible if:

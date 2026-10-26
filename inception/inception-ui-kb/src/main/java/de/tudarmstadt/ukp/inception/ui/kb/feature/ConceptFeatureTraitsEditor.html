@@ -36,6 +36,18 @@
         <select wicket:id="knowledgeBase" class="form-select"/>
       </div>
     </div>
+    <div wicket:id="fallbackKnowledgeBasesContainer" class="row form-row">
+      <label wicket:for="fallbackKnowledgeBases" class="col-sm-4 col-form-label">
+        <wicket:label key="fallbackKnowledgeBases"/>
+      </label>
+      <div class="col-sm-8">
+        <select wicket:id="fallbackKnowledgeBases" class="form-select" size="4"/>
+        <div class="form-text">
+          Also searched; their results are listed after those of the knowledge base above.
+          Ctrl+click to select several or to deselect.
+        </div>
+      </div>
+    </div>
     <div class="row form-row" wicket:enclosure="scope">
       <label wicket:for="scope" class="col-sm-4 col-form-label">
         <wicket:label key="scope"/>

@@ -19,17 +19,23 @@ package de.tudarmstadt.ukp.inception.ui.kb.feature;
 
 import static de.tudarmstadt.ukp.inception.kb.ConceptFeatureValueType.CONCEPT;
 import static de.tudarmstadt.ukp.inception.support.lambda.HtmlElementEvents.CHANGE_EVENT;
+import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visibleWhen;
 import static java.util.Collections.emptyList;
+import static java.util.stream.Collectors.toCollection;
 import static org.apache.commons.lang3.StringUtils.isBlank;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.form.DropDownChoice;
 import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.markup.html.form.LambdaChoiceRenderer;
+import org.apache.wicket.markup.html.form.ListMultipleChoice;
 import org.apache.wicket.markup.html.panel.GenericPanel;
 import org.apache.wicket.model.CompoundPropertyModel;
 import org.apache.wicket.model.IModel;
@@ -63,6 +69,8 @@ public class ConceptFeatureTraitsEditor
     private static final String MID_KNOWLEDGE_BASE = "knowledgeBase";
     private static final String MID_SCOPE = "scope";
     private static final String MID_ALLOWED_VALUE_TYPE = "allowedValueType";
+    private static final String MID_FALLBACK_CONTAINER = "fallbackKnowledgeBasesContainer";
+    private static final String MID_FALLBACK_KNOWLEDGE_BASES = "fallbackKnowledgeBases";
 
     private static final long serialVersionUID = 2129000875921279514L;
 
@@ -119,6 +127,22 @@ public class ConceptFeatureTraitsEditor
         knowledgeBase.add(new LambdaAjaxFormComponentUpdatingBehavior(CHANGE_EVENT, this::refresh));
         form.add(knowledgeBase);
 
+        // Fallbacks only make sense next to a primary knowledge base - without one, all
+        // knowledge bases are searched anyway
+        var fallbackContainer = new WebMarkupContainer(MID_FALLBACK_CONTAINER);
+        fallbackContainer.setOutputMarkupPlaceholderTag(true);
+        fallbackContainer.add(visibleWhen(() -> getSelectedKnowledgeBase() != null));
+        form.add(fallbackContainer);
+
+        var fallbackKnowledgeBases = new ListMultipleChoice<KnowledgeBase>(
+                MID_FALLBACK_KNOWLEDGE_BASES);
+        fallbackKnowledgeBases.setModel(
+                LambdaModel.of(this::getFallbackKnowledgeBases, this::setFallbackKnowledgeBases));
+        fallbackKnowledgeBases.setChoices(LoadableDetachableModel.of(this::listFallbackChoices));
+        fallbackKnowledgeBases.setChoiceRenderer(
+                new LambdaChoiceRenderer<>(KnowledgeBase::getName, KnowledgeBase::getRepositoryId));
+        fallbackContainer.add(fallbackKnowledgeBases);
+
         form.add(new DropDownChoice<>(MID_ALLOWED_VALUE_TYPE,
                 LoadableDetachableModel.of(this::listAllowedTypes)).add(
                         new LambdaAjaxFormComponentUpdatingBehavior(CHANGE_EVENT, this::refresh)));
@@ -166,14 +190,54 @@ public class ConceptFeatureTraitsEditor
     private void setSelectedKnowledgeBase(KnowledgeBase aKB)
     {
         if (traits.isPresent().getObject()) {
-            traits.getObject().setRepositoryId(aKB != null ? aKB.getRepositoryId() : null);
+            var t = traits.getObject();
+            t.setRepositoryId(aKB != null ? aKB.getRepositoryId() : null);
+            // A knowledge base can't be its own fallback, and without a primary one fallbacks
+            // would never be used - don't keep them around invisibly
+            var fallbacks = new ArrayList<>(t.getFallbackRepositoryIds());
+            if (aKB == null) {
+                fallbacks.clear();
+            }
+            else {
+                fallbacks.remove(aKB.getRepositoryId());
+            }
+            t.setFallbackRepositoryIds(fallbacks);
         }
+    }
+
+    private Collection<KnowledgeBase> getFallbackKnowledgeBases()
+    {
+        var ids = traits.getObject().getFallbackRepositoryIds();
+        return listFallbackChoices().stream() //
+                .filter(kb -> ids.contains(kb.getRepositoryId())) //
+                .toList();
+    }
+
+    /**
+     * Fallbacks are searched in the order the project lists its knowledge bases.
+     */
+    private void setFallbackKnowledgeBases(Collection<KnowledgeBase> aKBs)
+    {
+        var selected = aKBs.stream().map(KnowledgeBase::getRepositoryId).toList();
+        traits.getObject().setFallbackRepositoryIds(listFallbackChoices().stream() //
+                .map(KnowledgeBase::getRepositoryId) //
+                .filter(selected::contains) //
+                .collect(toCollection(ArrayList::new)));
+    }
+
+    private List<KnowledgeBase> listFallbackChoices()
+    {
+        var primaryId = traits.getObject().getRepositoryId();
+        return listKnowledgeBases().stream() //
+                .filter(kb -> !kb.getRepositoryId().equals(primaryId)) //
+                .toList();
     }
 
     private void refresh(AjaxRequestTarget aTarget)
     {
         setScope(getScope()); // Make sure the scope belongs to the selected KB
-        aTarget.add(get(MID_FORM).get(MID_SCOPE), get(MID_KEY_BINDINGS));
+        aTarget.add(get(MID_FORM).get(MID_SCOPE), get(MID_FORM).get(MID_FALLBACK_CONTAINER),
+                get(MID_KEY_BINDINGS));
     }
 
     private KBHandle loadConcept(KnowledgeBase aKB, String aIdentifier)
