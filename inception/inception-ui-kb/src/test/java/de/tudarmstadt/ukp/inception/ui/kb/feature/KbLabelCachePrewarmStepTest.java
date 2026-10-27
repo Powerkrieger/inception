@@ -142,6 +142,29 @@ public class KbLabelCachePrewarmStepTest
     }
 
     @Test
+    public void render_skipsFeaturesTheCasDoesNotHaveYet() throws Exception
+    {
+        // A CAS opened read-only is not upgraded, so a feature added or renamed in the project
+        // since it was saved is missing from its type system
+        addSpan(jcas, "webanno.custom.Span", 0, 5, "value", "kb:id1");
+        var newFeature = AnnotationFeature.builder() //
+                .withName("added_identifier") //
+                .withType(ConceptFeatureSupport.TYPE_ANY_OBJECT) //
+                .withMultiValueMode(MultiValueMode.NONE) //
+                .withLinkMode(LinkMode.NONE) //
+                .withLayer(singleValueLayer) //
+                .withProject(project) //
+                .build();
+
+        when(schemaService.listSupportedFeatures(singleValueLayer)).thenReturn(asList(newFeature));
+
+        sut.render(new VDocument(), renderRequest(singleValueLayer));
+
+        verify(kbService, never()).readHandles(any(Project.class), any());
+        verify(kbService, never()).readHandle(any(Project.class), anyString());
+    }
+
+    @Test
     public void render_warmsMultiValueConceptIds() throws Exception
     {
         var span = addSpan(jcas, "webanno.custom.SpanMultiValue", 0, 5, null, null);
