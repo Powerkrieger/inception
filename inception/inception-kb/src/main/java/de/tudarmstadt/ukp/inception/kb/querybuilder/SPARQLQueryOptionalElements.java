@@ -48,6 +48,14 @@ public interface SPARQLQueryOptionalElements
      */
     SPARQLQueryOptionalElements retrieveTag();
 
+    /**
+     * Request that the short label be retrieved as part of the query. Does nothing unless the
+     * knowledge base has a short label property configured.
+     *
+     * @return the builder (fluent API)
+     */
+    SPARQLQueryOptionalElements retrieveShortLabel();
+
     SPARQLQueryOptionalElements limit(int aLimit);
 
     /**

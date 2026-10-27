@@ -98,10 +98,12 @@ public class KnowledgeBaseIriPanel
         // leaving it empty simply means no tag is retrieved and no badge is rendered.
         var tagField = buildOptionalComboBox("tagIri", kbModel.bind("kb.tagIri"),
                 IriConstants.TAG_IRIS);
+        var shortLabelField = buildOptionalComboBox("shortLabelIri",
+                kbModel.bind("kb.shortLabelIri"), IriConstants.SHORT_LABEL_IRIS);
 
         comboBoxWrapper.add(classField, subclassField, typeField, subPropertyField,
                 descriptionField, labelField, propertyTypeField, propertyLabelField,
-                propertyDescriptionField, deprecationPropertyField, tagField);
+                propertyDescriptionField, deprecationPropertyField, tagField, shortLabelField);
 
         // RadioGroup to select the IriSchemaType
         var iriSchemaChoice = new DropDownChoice<SchemaProfile>("iriSchema", selectedSchemaProfile,

@@ -402,7 +402,7 @@ public class MultiValueConceptFeatureSupport
         }
 
         var traits = readTraits(aFeature);
-        return labelCache.get(aFeature, traits.getRepositoryId(), aIdentifier).getUiLabel();
+        return labelCache.get(aFeature, traits.getRepositoryId(), aIdentifier).getShortUiLabel();
     }
 
     @Override
@@ -418,7 +418,7 @@ public class MultiValueConceptFeatureSupport
         }
 
         return handles.stream() //
-                .map(KBHandle::getUiLabel) //
+                .map(KBHandle::getShortUiLabel) //
                 .toList();
     }
 

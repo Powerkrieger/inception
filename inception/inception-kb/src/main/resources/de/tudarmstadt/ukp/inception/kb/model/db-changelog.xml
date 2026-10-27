@@ -535,4 +535,18 @@
       </column>
     </addColumn>
   </changeSet>
+
+  <changeSet author="INCEpTION Team" id="20261027-1">
+    <preConditions onFail="MARK_RAN">
+      <not>
+        <columnExists tableName="knowledgebase" columnName="shortLabelIri"/>
+      </not>
+    </preConditions>
+
+    <addColumn tableName="knowledgebase">
+      <column name="shortLabelIri" type="VARCHAR(255)">
+        <constraints nullable="true" />
+      </column>
+    </addColumn>
+  </changeSet>
 </databaseChangeLog>

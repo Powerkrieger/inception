@@ -156,7 +156,7 @@ public class ConceptFeatureSupport
         }
 
         var traits = readTraits(aFeature);
-        return getConceptHandle(aFeature, aIdentifier, traits).getUiLabel();
+        return getConceptHandle(aFeature, aIdentifier, traits).getShortUiLabel();
     }
 
     @Override

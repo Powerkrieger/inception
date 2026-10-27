@@ -621,6 +621,11 @@ public class SPARQLQueryBuilder
         return VAR_TAG;
     }
 
+    private Projectable getShortLabelProjection()
+    {
+        return VAR_SHORT_LABEL;
+    }
+
     boolean noResult()
     {
         return returnEmptyResult = true;
@@ -1478,6 +1483,22 @@ public class SPARQLQueryBuilder
         return this;
     }
 
+    @Override
+    public SPARQLQueryOptionalElements retrieveShortLabel()
+    {
+        // Optional like the tag - see retrieveTag() for why nothing is added when unset. An item
+        // with several short names yields one row per value and an arbitrary one survives.
+        if (!kb.supportsShortLabel()) {
+            return this;
+        }
+
+        projections.add(getShortLabelProjection());
+
+        retrieveOptionalWithLanguage(iri(kb.getShortLabelIri()), VAR_SHORT_LABEL);
+
+        return this;
+    }
+
     private void retrieveOptionalWithLanguage(RdfPredicate aProperty, Variable aVariable)
     {
         var triple = VAR_SUBJECT.has(aProperty, aVariable);
@@ -1756,6 +1777,7 @@ public class SPARQLQueryBuilder
                 extractScore(handle, bindings);
                 extractDeprecation(handle, bindings);
                 extractTag(handle, bindings);
+                extractShortLabel(handle, bindings);
 
                 handles.add(handle);
             }
@@ -1914,6 +1936,14 @@ public class SPARQLQueryBuilder
             aTargetHandle.setDescription(descriptionBinding.getValue().stringValue());
             aDescriptionLanguages.put(aTargetHandle,
                     extractLanguage(descriptionBinding).orElse(null));
+        }
+    }
+
+    private void extractShortLabel(KBHandle aTargetHandle, BindingSet aSourceBindings)
+    {
+        var shortLabel = aSourceBindings.getBinding(VAR_SHORT_LABEL_NAME);
+        if (shortLabel != null) {
+            aTargetHandle.setShortLabel(shortLabel.getValue().stringValue());
         }
     }
 

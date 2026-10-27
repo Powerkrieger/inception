@@ -119,6 +119,47 @@ public class SPARQLQueryBuilderTest
                 .containsPattern("(?s)OPTIONAL.*organismTag");
     }
 
+    @Test
+    public void thatNoShortLabelClauseIsEmittedWhenNoShortLabelPropertyIsConfigured()
+        throws Exception
+    {
+        var kb = new KnowledgeBase();
+        initRdfsMapping(kb);
+        kb.setMaxResults(100);
+
+        var sut = new SPARQLQueryBuilder(kb, Mode.ITEM);
+        sut.withPrefLabelProperties(of("http://www.w3.org/2000/01/rdf-schema#label"));
+        sut.withIdentifier("https://example.org/ns#P37231");
+        sut.retrieveLabel().retrieveShortLabel();
+
+        assertThat(sut.selectQuery().getQueryString()) //
+                .as("no short label variable is projected when no property is configured") //
+                .doesNotContain("?sl");
+    }
+
+    @Test
+    public void thatShortLabelIsRetrievedViaTheConfiguredProperty() throws Exception
+    {
+        var kb = new KnowledgeBase();
+        initRdfsMapping(kb);
+        kb.setMaxResults(100);
+        kb.setShortLabelIri("http://purl.uniprot.org/core/shortName");
+
+        var sut = new SPARQLQueryBuilder(kb, Mode.ITEM);
+        sut.withPrefLabelProperties(of("http://www.w3.org/2000/01/rdf-schema#label"));
+        sut.withIdentifier("https://example.org/ns#P37231");
+        sut.retrieveLabel().retrieveShortLabel();
+
+        var query = sut.selectQuery().getQueryString();
+
+        assertThat(query) //
+                .as("the short label is retrieved via the configured IRI as a constant predicate") //
+                .contains("<http://purl.uniprot.org/core/shortName> ?sl");
+        assertThat(query) //
+                .as("the lookup is optional - an item without a short label is still returned") //
+                .containsPattern("(?s)OPTIONAL.*shortName");
+    }
+
     private SPARQLQueryBuilder markLogicBuilder()
     {
         var kb = new KnowledgeBase();
