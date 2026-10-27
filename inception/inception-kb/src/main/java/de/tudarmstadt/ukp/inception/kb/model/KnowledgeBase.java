@@ -128,6 +128,15 @@ public class KnowledgeBase
     private String tagIri;
 
     /**
+     * The IRI for a property carrying a short name for A, rendered as the label of annotations
+     * linked to A (e.g. "PPAR-gamma" instead of "Peroxisome proliferator-activated receptor
+     * gamma"). The candidate list still shows the full label. If this field is null, or A has no
+     * value for it, the label is rendered as usual.
+     */
+    @Column(nullable = true)
+    private String shortLabelIri;
+
+    /**
      * The IRI used for full text search, e.g. {@code bif:contains} or
      * {@code http://www.openrdf.org/contrib/lucenesail#}. If this field is null, then FTS is not
      * supported.
@@ -354,6 +363,25 @@ public class KnowledgeBase
     public boolean supportsTag()
     {
         return !isEmpty(tagIri);
+    }
+
+    public String getShortLabelIri()
+    {
+        return shortLabelIri;
+    }
+
+    public void setShortLabelIri(String aShortLabelIri)
+    {
+        shortLabelIri = aShortLabelIri;
+    }
+
+    /**
+     * @return whether a short label property has been configured, i.e. whether short labels should
+     *         be retrieved at all.
+     */
+    public boolean supportsShortLabel()
+    {
+        return !isEmpty(shortLabelIri);
     }
 
     public String getLabelIri()

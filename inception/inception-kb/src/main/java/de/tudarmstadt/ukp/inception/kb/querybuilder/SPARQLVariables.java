@@ -46,6 +46,7 @@ public interface SPARQLVariables
     String VAR_DOMAIN_NAME = "domain";
     String VAR_DEPRECATION_NAME = "dp";
     String VAR_TAG_NAME = "tg";
+    String VAR_SHORT_LABEL_NAME = "sl";
 
     Variable VAR_SUBJECT = var(VAR_SUBJECT_NAME);
     Variable VAR_SCORE = var(VAR_SCORE_NAME);
@@ -61,6 +62,7 @@ public interface SPARQLVariables
     Variable VAR_DESC_CANDIDATE = var(VAR_DESCRIPTION_CANDIDATE_NAME);
     Variable VAR_DEPRECATION = var(VAR_DEPRECATION_NAME);
     Variable VAR_TAG = var(VAR_TAG_NAME);
+    Variable VAR_SHORT_LABEL = var(VAR_SHORT_LABEL_NAME);
 
     // The Virtuoso FTS predicate must be rendered as the magic "bif:contains" prefixed name with
     // the "bif" prefix declared (expanding to the engine-internal "bif:" namespace). The full-IRI

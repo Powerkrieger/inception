@@ -29,6 +29,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.contentOf;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.eclipse.rdf4j.rio.RDFFormat.RDFXML;
 import static org.eclipse.rdf4j.rio.RDFFormat.TURTLE;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -82,6 +83,14 @@ public class SPARQLQueryBuilderLocalTestScenarios
     static final String DATA_LABELS_AND_DESCRIPTIONS_WITH_LANGUAGE = contentOf(
             new File("src/test/resources/turtle/data_labels_and_descriptions_with_language.ttl"),
             UTF_8);
+
+    static final String DATA_SHORT_LABELS = String.join("\n", //
+            "<#pparg>", //
+            "    rdfs:label 'Peroxisome proliferator-activated receptor gamma' ;", //
+            "    <#shortName> 'PPAR-gamma' .", //
+            "", //
+            "<#insulin>", //
+            "    rdfs:label 'Insulin' .");
 
     static final String DATA_LABELS_WITHOUT_LANGUAGE = String.join("\n", //
             "<#green-goblin>", //
@@ -291,6 +300,8 @@ public class SPARQLQueryBuilderLocalTestScenarios
                         SPARQLQueryBuilderLocalTestScenarios::thatLabelsInAnyLanguageAreRetrievedWhenNoDefaultLanguage),
                 new Scenario("thatLabelsAndDescriptionsWithLanguageArePreferred",
                         SPARQLQueryBuilderLocalTestScenarios::thatLabelsAndDescriptionsWithLanguageArePreferred),
+                new Scenario("thatShortLabelIsRetrievedWhereItExists",
+                        SPARQLQueryBuilderLocalTestScenarios::thatShortLabelIsRetrievedWhereItExists),
                 new Scenario("thatSearchOverMultipleLabelsWorks",
                         SPARQLQueryBuilderLocalTestScenarios::thatSearchOverMultipleLabelsWorks),
                 new Scenario("thatResolveMatchingPropertiesWorks",
@@ -479,6 +490,27 @@ public class SPARQLQueryBuilderLocalTestScenarios
                         "description", "language")
                 .containsExactlyInAnyOrder(new KBHandle("http://example.org/#green-goblin",
                         "Goblin vert", "Little green monster", "fr"));
+    }
+
+    static void thatShortLabelIsRetrievedWhereItExists(Repository aRepository, KnowledgeBase aKB)
+        throws Exception
+    {
+        aKB.setShortLabelIri("http://example.org/#shortName");
+
+        importDataFromString(aRepository, aKB, TURTLE, TURTLE_PREFIX, DATA_SHORT_LABELS);
+
+        var results = asHandles(aRepository, SPARQLQueryBuilder //
+                .forItems(aKB) //
+                .withIdentifier("http://example.org/#pparg", "http://example.org/#insulin") //
+                .retrieveLabel() //
+                .retrieveShortLabel());
+
+        assertThat(results) //
+                .extracting(KBHandle::getIdentifier, KBHandle::getShortLabel,
+                        KBHandle::getShortUiLabel) //
+                .containsExactlyInAnyOrder( //
+                        tuple("http://example.org/#pparg", "PPAR-gamma", "PPAR-gamma"), //
+                        tuple("http://example.org/#insulin", null, "Insulin"));
     }
 
     static void thatSearchOverMultipleLabelsWorks(Repository aRepository, KnowledgeBase aKB)

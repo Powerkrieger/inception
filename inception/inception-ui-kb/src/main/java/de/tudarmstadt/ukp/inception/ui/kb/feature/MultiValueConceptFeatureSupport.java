@@ -405,7 +405,7 @@ public class MultiValueConceptFeatureSupport
         var traits = readTraits(aFeature);
         return labelCache
                 .getFromFirstKnowing(aFeature, traits.getRepositoryIdsInOrder(), aIdentifier)
-                .getUiLabel();
+                .getShortUiLabel();
     }
 
     @Override
@@ -421,7 +421,7 @@ public class MultiValueConceptFeatureSupport
         }
 
         return handles.stream() //
-                .map(KBHandle::getUiLabel) //
+                .map(KBHandle::getShortUiLabel) //
                 .toList();
     }
 

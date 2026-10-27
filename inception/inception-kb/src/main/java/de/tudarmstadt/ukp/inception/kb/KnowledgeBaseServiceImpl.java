@@ -1626,6 +1626,7 @@ public class KnowledgeBaseServiceImpl
                     .retrieveLabel() //
                     .retrieveDescription() //
                     .retrieveTag() //
+                    .retrieveShortLabel() //
                     .retrieveDeprecation();
 
             Optional<KBHandle> result;
@@ -1705,10 +1706,13 @@ public class KnowledgeBaseServiceImpl
         // would risk truncating legitimate multi-row-per-id output (languages × OPTIONALs).
         var query = SPARQLQueryBuilder.forItems(aKB);
         preResolveLabelProperties(aKB, query, false);
+        // The short label is only fetched on these two paths: they resolve the identifiers stored
+        // in annotations, which is where it is rendered. Search results show the full label.
         query.withIdentifier(aIds.toArray(String[]::new)) //
                 .retrieveLabel() //
                 .retrieveDescription() //
                 .retrieveTag() //
+                .retrieveShortLabel() //
                 .retrieveDeprecation() //
                 .noLimit();
 

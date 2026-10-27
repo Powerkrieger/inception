@@ -18,6 +18,7 @@
 package de.tudarmstadt.ukp.inception.kb.graph;
 
 import static java.util.Collections.emptySet;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.apache.commons.lang3.builder.ToStringStyle.SHORT_PREFIX_STYLE;
 
 import java.util.ArrayList;
@@ -44,6 +45,7 @@ public class KBHandle
     private Set<Pair<String, String>> matchTerms;
     private String description;
     private String tag;
+    private String shortLabel;
     private KnowledgeBase kb;
     private String language;
     private boolean deprecated;
@@ -67,6 +69,7 @@ public class KBHandle
         matchTerms = builder.matchTerms;
         description = builder.description;
         tag = builder.tag;
+        shortLabel = builder.shortLabel;
         kb = builder.kb;
         language = builder.language;
         deprecated = builder.deprecated;
@@ -85,6 +88,7 @@ public class KBHandle
         matchTerms = aOther.matchTerms;
         description = aOther.description;
         tag = aOther.tag;
+        shortLabel = aOther.shortLabel;
         kb = aOther.kb;
         language = aOther.language;
         deprecated = aOther.deprecated;
@@ -199,6 +203,29 @@ public class KBHandle
     public void setTag(String aTag)
     {
         tag = aTag;
+    }
+
+    /**
+     * @return the short name for this item, or {@code null} if the knowledge base has no short
+     *         label property configured or this item carries no value for it.
+     */
+    public String getShortLabel()
+    {
+        return shortLabel;
+    }
+
+    public void setShortLabel(String aShortLabel)
+    {
+        shortLabel = aShortLabel;
+    }
+
+    /**
+     * @return the short label if this item has one, otherwise the same as {@link #getUiLabel()}.
+     *         Used where space is tight, i.e. as the label of an annotation linked to this item.
+     */
+    public String getShortUiLabel()
+    {
+        return isNotBlank(shortLabel) ? shortLabel : getUiLabel();
     }
 
     @Override
@@ -427,6 +454,7 @@ public class KBHandle
         private Set<Pair<String, String>> matchTerms = Collections.emptySet();
         private String description;
         private String tag;
+        private String shortLabel;
         private KnowledgeBase kb;
         private String language;
         private boolean deprecated;
@@ -473,6 +501,12 @@ public class KBHandle
         public Builder withTag(String aTag)
         {
             tag = aTag;
+            return this;
+        }
+
+        public Builder withShortLabel(String aShortLabel)
+        {
+            shortLabel = aShortLabel;
             return this;
         }
 

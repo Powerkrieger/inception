@@ -66,6 +66,9 @@ public class ExportedKnowledgeBase
     @JsonProperty("tag_iri")
     private String tagIri;
 
+    @JsonProperty("short_label_iri")
+    private String shortLabelIri;
+
     @JsonProperty("full_text_search_iri")
     private String fullTextSearchIri;
 
@@ -199,6 +202,16 @@ public class ExportedKnowledgeBase
     public void setTagIri(String aTagIri)
     {
         tagIri = aTagIri;
+    }
+
+    public String getShortLabelIri()
+    {
+        return shortLabelIri;
+    }
+
+    public void setShortLabelIri(String aShortLabelIri)
+    {
+        shortLabelIri = aShortLabelIri;
     }
 
     public String getLabelIri()
