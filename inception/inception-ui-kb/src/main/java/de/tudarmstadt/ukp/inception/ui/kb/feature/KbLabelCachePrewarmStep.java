@@ -169,6 +169,13 @@ public class KbLabelCachePrewarmStep
     private void extractKeys(FeatureInfo aInfo, FeatureStructure aFs, Set<Key> aOut)
     {
         var feature = aInfo.feature();
+
+        // A CAS opened read-only is not upgraded to the project's type system, so it can lack
+        // a feature added (or renamed) since it was last saved - it has no values for it then
+        if (aFs.getType().getFeatureByBaseName(feature.getName()) == null) {
+            return;
+        }
+
         if (!aInfo.isMulti()) {
             var id = FSUtil.getFeature(aFs, feature.getName(), String.class);
             if (isNotBlank(id)) {
