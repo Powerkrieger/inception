@@ -16,18 +16,30 @@
  * limitations under the License.
  */
 import AbstractAnnotation from './pdfanno/core/src/model/AbstractAnnotation';
-import type { AnnotationEditor, DiamAjax, Offsets } from '@inception-project/inception-js-api';
+import type {
+    AnnotationEditor,
+    DiamAjax,
+    Offsets,
+    ViewportScrollPosition,
+    ViewportScrollTarget,
+    ViewportSyncPeer,
+} from '@inception-project/inception-js-api';
 import './PdfAnnotationEditor.scss';
 import {
     initPdfAnno,
     getAnnotations as doLoadAnnotations,
     scrollTo,
+    getViewportScrollPosition,
+    scrollToViewportPosition,
+    getScrollContainer,
     destroy as destroyPdfAnno,
 } from './pdfanno/pdfanno';
 
 export class PdfAnnotationEditor implements AnnotationEditor {
     private ajax: DiamAjax;
     private root: Element;
+    private viewportSyncHub?: ViewportSyncPeer;
+    private viewportSyncId?: string;
 
     public constructor(element: Element, ajax: DiamAjax) {
         this.ajax = ajax;
@@ -64,6 +76,30 @@ export class PdfAnnotationEditor implements AnnotationEditor {
     scrollTo(args: { offset: number; position?: string; pingRanges?: Offsets[] }): void {
         // console.log(`SCROLLING! ${args.offset} ${args.position}`)
         scrollTo(args);
+    }
+
+    getViewportScrollPosition(): ViewportScrollPosition | null {
+        return getViewportScrollPosition();
+    }
+
+    scrollToViewportPosition(pos: ViewportScrollTarget): void {
+        scrollToViewportPosition(pos);
+    }
+
+    connectViewportSync(aHub: ViewportSyncPeer, aId: string): void {
+        this.viewportSyncHub = aHub;
+        this.viewportSyncId = aId;
+        // PDF.js has built its viewport container by now: the factory awaits init() before the
+        // editor is handed to ExternalEditorFactory, which only then calls this method.
+        aHub.register(aId, this, getScrollContainer() ?? undefined);
+    }
+
+    disconnectViewportSync(): void {
+        if (this.viewportSyncHub && this.viewportSyncId) {
+            this.viewportSyncHub.unregister(this.viewportSyncId);
+        }
+        this.viewportSyncHub = undefined;
+        this.viewportSyncId = undefined;
     }
 
     private cancelRightClick(e: Event): void {
@@ -120,6 +156,7 @@ export class PdfAnnotationEditor implements AnnotationEditor {
     }
 
     destroy(): void {
+        this.disconnectViewportSync();
         destroyPdfAnno();
     }
 }

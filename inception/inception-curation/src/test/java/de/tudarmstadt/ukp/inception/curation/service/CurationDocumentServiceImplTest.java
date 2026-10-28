@@ -21,11 +21,17 @@ import static de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasAccessMode.EXC
 import static de.tudarmstadt.ukp.clarin.webanno.api.casstorage.session.CasStorageSession.openNested;
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState.FINISHED;
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState.IGNORE;
+import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet.CURATION_SET;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.ANNOTATOR;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.CURATOR;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.ANNOTATION_FINISHED;
+import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.ANNOTATION_IN_PROGRESS;
+import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_FINISHED;
+import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_IN_PROGRESS;
+import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.NEW;
 import static de.tudarmstadt.ukp.clarin.webanno.security.model.Role.ROLE_USER;
 import static de.tudarmstadt.ukp.inception.annotation.storage.CasMetadataUtils.getInternalTypeSystem;
+import static de.tudarmstadt.ukp.inception.support.WebAnnoConst.CURATION_USER;
 import static de.tudarmstadt.ukp.inception.support.uima.WebAnnoCasUtil.createCas;
 import static java.util.Arrays.asList;
 import static org.apache.uima.fit.factory.TypeSystemDescriptionFactory.createTypeSystemDescription;
@@ -39,6 +45,7 @@ import java.nio.file.Path;
 
 import org.apache.uima.util.CasCreationUtils;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,15 +58,19 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasStorageService;
 import de.tudarmstadt.ukp.clarin.webanno.api.export.DocumentImportExportService;
 import de.tudarmstadt.ukp.clarin.webanno.constraints.config.ConstraintsServiceAutoConfiguration;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocument;
+import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.ProjectPermission;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
+import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState;
 import de.tudarmstadt.ukp.clarin.webanno.project.config.ProjectServiceAutoConfiguration;
 import de.tudarmstadt.ukp.clarin.webanno.security.config.SecurityAutoConfiguration;
 import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
@@ -68,6 +79,7 @@ import de.tudarmstadt.ukp.inception.curation.config.CurationDocumentServiceAutoC
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.documents.api.RepositoryAutoConfiguration;
 import de.tudarmstadt.ukp.inception.documents.config.DocumentServiceAutoConfiguration;
+import de.tudarmstadt.ukp.inception.documents.event.DocumentStateChangedEvent;
 import de.tudarmstadt.ukp.inception.log.config.EventLoggingAutoConfiguration;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import de.tudarmstadt.ukp.inception.schema.config.AnnotationSchemaServiceAutoConfiguration;
@@ -89,6 +101,7 @@ import de.tudarmstadt.ukp.inception.schema.config.AnnotationSchemaServiceAutoCon
         AnnotationSchemaServiceAutoConfiguration.class, //
         SecurityAutoConfiguration.class, //
         CurationDocumentServiceAutoConfiguration.class })
+@RecordApplicationEvents
 class CurationDocumentServiceImplTest
 {
     static @TempDir Path tempFolder;
@@ -104,6 +117,7 @@ class CurationDocumentServiceImplTest
     private @Autowired DocumentService documentService;
     private @Autowired CasStorageService casStorageService;
     private @Autowired CurationDocumentServiceImpl sut;
+    private @Autowired ApplicationEvents applicationEvents;
 
     private User current;
     private User beate;
@@ -134,82 +148,47 @@ class CurationDocumentServiceImplTest
     }
 
     @Test
-    void testListCuratableSourceDocuments_legacy()
+    void testListCuratableSourceDocuments()
     {
-        var ann = documentService.createOrUpdateAnnotationDocument(
-                new AnnotationDocument(beate.getUsername(), testDocument));
-
-        assertThat(sut.listCuratableSourceDocuments_legacy(testProject))
-                .as("No curatable documents as long as no document is marked as finished")
-                .isEmpty();
-
-        documentService.setAnnotationDocumentState(ann, FINISHED);
-
-        assertThat(sut.listCuratableSourceDocuments_legacy(testProject)) //
-                .as("Finished documents become curatable") //
-                .contains(testDocument);
-    }
-
-    @Test
-    void listCuratableSourceDocuments_legacy_ShouldIncludeFormerAnnotatorsDocuments()
-    {
-        // "current" has a user account but no ANNOTATOR permission in the project (e.g. removed
-        // from the project or role changed). A document with only their finished data must still
-        // surface for curation so their data stays accessible.
-        var ann = documentService
-                .createOrUpdateAnnotationDocument(new AnnotationDocument("current", testDocument));
-        documentService.setAnnotationDocumentState(ann, FINISHED);
-
-        assertThat(sut.listCuratableSourceDocuments_legacy(testProject)) //
-                .as("Documents with only former-annotator data are curatable") //
-                .contains(testDocument);
-    }
-
-    @Test
-    void listCuratableSourceDocuments_legacy_ShouldIncludeIgnoredDocumentsOnlyWhenTheyHaveData()
-        throws Exception
-    {
-        var withData = new SourceDocument("withData", testProject, "text");
-        var withoutData = new SourceDocument("withoutData", testProject, "text");
-        testEntityManager.persist(withData);
-        testEntityManager.persist(withoutData);
-
-        // kevin opened "withData" (a CAS exists) before setting it to IGNORE.
-        testEntityManager.persist(AnnotationDocument.builder() //
-                .withUser("kevin") //
-                .forDocument(withData) //
-                .withAnnotatorState(IGNORE) //
-                .build());
-        writeCasFor(withData, "kevin");
-
-        // kevin set "withoutData" to IGNORE without ever opening it (no CAS).
-        testEntityManager.persist(AnnotationDocument.builder() //
-                .withUser("kevin") //
-                .forDocument(withoutData) //
-                .withAnnotatorState(IGNORE) //
-                .build());
-
-        // A CAS storage session is required so the CAS-existence check can run (as in the real
-        // curation flow, which always runs within such a session).
-        try (var session = openNested(true)) {
-            assertThat(sut.listCuratableSourceDocuments_legacy(testProject)) //
-                    .as("IGNORE documents are curatable only when the annotator produced data") //
-                    .containsExactly(withData);
-        }
-    }
-
-    @Test
-    void testListCuratableSourceDocuments_new()
-    {
-        assertThat(sut.listCuratableSourceDocuments_new(testProject))
+        assertThat(sut.listCuratableSourceDocuments(testProject))
                 .as("No curatable documents as long as source document is not marked as finished")
                 .isEmpty();
 
         documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);
 
-        assertThat(sut.listCuratableSourceDocuments_new(testProject)) //
+        assertThat(sut.listCuratableSourceDocuments(testProject)) //
                 .as("Source documents marked ANNOTATION_FINISHED become curatable") //
                 .contains(testDocument);
+    }
+
+    @Test
+    void listCuratableSourceDocuments_ShouldKeepDocumentsAlreadyInCuration() throws Exception
+    {
+        // Curation was started and the annotators were reset afterwards - e.g. from the workload
+        // management page. The workload managers no longer touch the state of a document in
+        // curation, so it stays in a curation state while no annotation document is finished any
+        // longer. The curator must not lose access to the work already done.
+        var inProgress = new SourceDocument("inProgress", testProject, "text");
+        inProgress.updateState(CURATION_IN_PROGRESS);
+        var curationFinished = new SourceDocument("curationFinished", testProject, "text");
+        curationFinished.updateState(CURATION_FINISHED);
+        testEntityManager.persist(inProgress);
+        testEntityManager.persist(curationFinished);
+
+        testEntityManager.persist(AnnotationDocument.builder() //
+                .withUser("kevin") //
+                .forDocument(inProgress) //
+                .withState(AnnotationDocumentState.NEW) //
+                .build());
+
+        try (var session = openNested(true)) {
+            assertThat(sut.listCuratableSourceDocuments(testProject)) //
+                    .as("Documents already in curation remain offered for curation") //
+                    .containsExactly(curationFinished, inProgress);
+            assertThat(sut.isDocumentCuratable(inProgress)) //
+                    .as("The list agrees with the open gate") //
+                    .isTrue();
+        }
     }
 
     @Test
@@ -245,6 +224,249 @@ class CurationDocumentServiceImplTest
             assertThat(sut.listCuratableUsers(testDocument)) //
                     .as("IGNORE documents are only curatable when the annotator produced data") //
                     .containsExactly(beate, kevin);
+        }
+    }
+
+    @Test
+    void isDocumentCuratable_ShouldRefuseDocumentThatIsNotAnnotationFinished() throws Exception
+    {
+        testEntityManager.persist(AnnotationDocument.builder() //
+                .withUser("beate") //
+                .forDocument(testDocument) //
+                .withState(FINISHED) //
+                .build());
+
+        try (var session = openNested(true)) {
+            assertThat(sut.isDocumentCuratable(testDocument)) //
+                    .as("A document that has not reached ANNOTATION_FINISHED is not curatable") //
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void isDocumentCuratable_ShouldAcceptAnnotationFinishedDocumentWithData() throws Exception
+    {
+        testEntityManager.persist(AnnotationDocument.builder() //
+                .withUser("beate") //
+                .forDocument(testDocument) //
+                .withState(FINISHED) //
+                .build());
+        documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);
+
+        try (var session = openNested(true)) {
+            assertThat(sut.isDocumentCuratable(testDocument)) //
+                    .as("An annotation-finished document with finished annotation data is curatable")
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void isDocumentCuratable_ShouldRefuseAnnotationFinishedDocumentWithoutAnyData() throws Exception
+    {
+        // The document claims annotation is complete but has no annotation document at all - e.g. a
+        // project imported without users/permissions, whose documents were marked
+        // annotation-finished because the empty set of annotators trivially satisfied the
+        // completion rule. So there is no template to initialize the curation CAS from.
+        documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);
+
+        try (var session = openNested(true)) {
+            assertThat(sut.isDocumentCuratable(testDocument)) //
+                    .as("Without any annotation data there is no template, so curation is refused") //
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void isDocumentCuratable_ShouldRefuseAnnotationFinishedDocumentThatWasOnlyLocked()
+        throws Exception
+    {
+        // Every annotator locked the document without ever opening it, so no CAS was written and
+        // listCuratableUsers comes out empty even though annotation documents exist.
+        testEntityManager.persist(AnnotationDocument.builder() //
+                .withUser("beate") //
+                .forDocument(testDocument) //
+                .withAnnotatorState(IGNORE) //
+                .build());
+        testEntityManager.persist(AnnotationDocument.builder() //
+                .withUser("kevin") //
+                .forDocument(testDocument) //
+                .withAnnotatorState(IGNORE) //
+                .build());
+        documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);
+
+        try (var session = openNested(true)) {
+            assertThat(sut.isDocumentCuratable(testDocument)) //
+                    .as("A document that was only locked has no data to curate") //
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void isDocumentCuratable_ShouldAllowContinuingStartedCurationWithoutAnyAnnotationData()
+        throws Exception
+    {
+        // Curation was started and afterwards all annotators were removed/reset. The curator's work
+        // must remain accessible, so a document in a curation state stays curatable even though
+        // there is nothing left to merge from.
+        for (var state : asList(CURATION_IN_PROGRESS, CURATION_FINISHED)) {
+            documentService.setSourceDocumentState(testDocument, state);
+
+            try (var session = openNested(true)) {
+                assertThat(sut.isDocumentCuratable(testDocument)) //
+                        .as("Curation already in state %s may always be continued", state) //
+                        .isTrue();
+            }
+        }
+    }
+
+    @Test
+    void isDocumentCuratable_ShouldNotTreatCurationCasOfDocumentNotInCurationAsStartedCuration()
+        throws Exception
+    {
+        // Like the curatable document lists, the decision is taken on the database alone. The
+        // document never reached ANNOTATION_FINISHED and has no annotators, so it must not be let
+        // through.
+        writeCurationCasFor(testDocument);
+
+        try (var session = openNested(true)) {
+            assertThat(sut.isDocumentCuratable(testDocument)) //
+                    .as("A curation CAS of a document not in curation is not started curation") //
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void isDocumentCuratable_ShouldUseTheStoredStateRatherThanTheGivenEntity() throws Exception
+    {
+        // Another curator moved the document into curation in the meantime - the caller's entity is
+        // stale. As a service method this must not depend on the caller having refreshed it.
+        documentService.setSourceDocumentState(testDocument, CURATION_IN_PROGRESS);
+        testEntityManager.flush();
+
+        var staleDocument = new SourceDocument("doc", testProject, "text");
+        staleDocument.setId(testDocument.getId());
+        staleDocument.updateState(NEW);
+
+        try (var session = openNested(true)) {
+            assertThat(sut.isDocumentCuratable(staleDocument)) //
+                    .as("The stored curation state wins over the stale entity") //
+                    .isTrue();
+        }
+    }
+
+    @Test
+    void isDocumentCuratable_ShouldRefuseWhenStoredStateIsBehindTheGivenEntity() throws Exception
+    {
+        // The inverse: the caller's entity claims annotation is finished, but the stored state says
+        // otherwise - e.g. an annotator was put back into IN_PROGRESS. The gate must not be fooled.
+        testEntityManager.persist(AnnotationDocument.builder() //
+                .withUser("beate") //
+                .forDocument(testDocument) //
+                .withState(FINISHED) //
+                .build());
+
+        var staleDocument = new SourceDocument("doc", testProject, "text");
+        staleDocument.setId(testDocument.getId());
+        staleDocument.updateState(ANNOTATION_FINISHED);
+
+        try (var session = openNested(true)) {
+            assertThat(sut.isDocumentCuratable(staleDocument)) //
+                    .as("A stale ANNOTATION_FINISHED on the entity does not open the gate") //
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void markCurationInProgress_ShouldPutDocumentIntoCuration()
+    {
+        documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);
+
+        sut.markCurationInProgress(testDocument);
+
+        assertThat(testEntityManager.find(SourceDocument.class, testDocument.getId()).getState()) //
+                .as("An annotation-finished document is put into curation") //
+                .isEqualTo(CURATION_IN_PROGRESS);
+    }
+
+    @Test
+    void markCurationInProgress_ShouldNotReopenFinishedCuration()
+    {
+        documentService.setSourceDocumentState(testDocument, CURATION_FINISHED);
+
+        sut.markCurationInProgress(testDocument);
+
+        assertThat(testEntityManager.find(SourceDocument.class, testDocument.getId()).getState()) //
+                .as("A finished curation is not silently reopened") //
+                .isEqualTo(CURATION_FINISHED);
+    }
+
+    @Test
+    void markCurationInProgress_ShouldLeaveDocumentAlreadyInCurationUntouched()
+    {
+        documentService.setSourceDocumentState(testDocument, CURATION_IN_PROGRESS);
+        testEntityManager.flush();
+
+        var updatedBefore = testEntityManager.find(SourceDocument.class, testDocument.getId())
+                .getUpdated();
+
+        sut.markCurationInProgress(testDocument);
+        testEntityManager.flush();
+
+        var reloaded = testEntityManager.find(SourceDocument.class, testDocument.getId());
+        assertThat(reloaded.getState()) //
+                .as("The document stays in curation") //
+                .isEqualTo(CURATION_IN_PROGRESS);
+        assertThat(reloaded.getUpdated()) //
+                .as("The user-visible update timestamp is not bumped") //
+                .isEqualTo(updatedBefore);
+    }
+
+    @Test
+    void markCurationInProgress_ShouldDecideBasedOnTheStoredState()
+    {
+        // Another curator finished curation in a different request, so the state on the entity we
+        // hold predates that. The guard has to look at the database, otherwise a finished curation
+        // gets reopened. The write bypasses the entity so that it keeps its pre-transition state,
+        // mimicking an entity loaded before the concurrent change.
+        documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);
+        testEntityManager.flush();
+        setStoredStateBypassingEntity(testDocument, CURATION_FINISHED);
+
+        assertThat(testDocument.getState()) //
+                .as("Precondition: the entity still has the pre-transition state") //
+                .isEqualTo(ANNOTATION_FINISHED);
+
+        sut.markCurationInProgress(testDocument);
+        testEntityManager.flush();
+        testEntityManager.clear();
+
+        assertThat(testEntityManager.find(SourceDocument.class, testDocument.getId()).getState()) //
+                .as("The stored state wins over the state on the entity") //
+                .isEqualTo(CURATION_FINISHED);
+    }
+
+    /**
+     * Change the stored state of a document without touching the given entity, so that the entity
+     * is left holding the state from before the change - as it would be if another request had done
+     * the change after this one loaded the document.
+     */
+    private void setStoredStateBypassingEntity(SourceDocument aDocument, SourceDocumentState aState)
+    {
+        testEntityManager.getEntityManager()
+                .createQuery("UPDATE SourceDocument SET state = :state WHERE id = :id")
+                .setParameter("state", aState) //
+                .setParameter("id", aDocument.getId()) //
+                .executeUpdate();
+    }
+
+    private void writeCurationCasFor(SourceDocument aDocument) throws Exception
+    {
+        try (var session = openNested(true)) {
+            var tsd = mergeTypeSystems(
+                    asList(createTypeSystemDescription(), getInternalTypeSystem()));
+            var cas = createCas(tsd);
+            session.add(CURATION_SET, EXCLUSIVE_WRITE_ACCESS, cas);
+            casStorageService.writeCas(aDocument, cas, CURATION_SET);
         }
     }
 
@@ -309,6 +531,117 @@ class CurationDocumentServiceImplTest
         var finishedUsers = sut.listCuratableUsers(testDocument);
 
         assertThat(finishedUsers).containsExactly(beate, kevin);
+    }
+
+    @Nested
+    class ResetCuration
+    {
+        @Test
+        void resetCuration_ShouldWorkWithoutCurationAnnotationDocument() throws Exception
+        {
+            writeCurationCasFor(testDocument);
+
+            try (var session = openNested(true)) {
+                sut.resetCuration(testDocument);
+                assertThat(sut.existsCurationCas(testDocument)) //
+                        .as("The curation CAS is deleted") //
+                        .isFalse();
+            }
+        }
+
+        @Test
+        void resetCuration_ShouldMoveDocumentInCurationBackToAnnotation() throws Exception
+        {
+            var curationDocument = createCurationAnnotationDocument(testDocument,
+                    AnnotationDocumentState.IN_PROGRESS);
+            documentService.setSourceDocumentState(testDocument, CURATION_FINISHED);
+            writeCurationCasFor(testDocument);
+
+            try (var session = openNested(true)) {
+                assertThat(sut.resetCuration(testDocument)) //
+                        .as("The document was in curation") //
+                        .isTrue();
+            }
+
+            try (var session = openNested(true)) {
+                assertThat(sut.existsCurationCas(testDocument)) //
+                        .as("The curation CAS is deleted") //
+                        .isFalse();
+            }
+            assertThat(documentService.getSourceDocument(testProject.getId(), testDocument.getId())
+                    .getState()) //
+                            .as("The document is moved out of curation") //
+                            .isEqualTo(ANNOTATION_IN_PROGRESS);
+            assertThat(testEntityManager.find(AnnotationDocument.class, curationDocument.getId())
+                    .getState()) //
+                            .as("The curation annotation document is back to NEW") //
+                            .isEqualTo(AnnotationDocumentState.NEW);
+        }
+
+        @Test
+        void resetCuration_ShouldKeepStateOfDocumentNotInCuration() throws Exception
+        {
+            documentService.setSourceDocumentState(testDocument, ANNOTATION_FINISHED);
+            writeCurationCasFor(testDocument);
+
+            try (var session = openNested(true)) {
+                assertThat(sut.resetCuration(testDocument)) //
+                        .as("The document was not in curation") //
+                        .isFalse();
+            }
+
+            try (var session = openNested(true)) {
+                assertThat(sut.existsCurationCas(testDocument)) //
+                        .as("The curation CAS is deleted") //
+                        .isFalse();
+            }
+            assertThat(documentService.getSourceDocument(testProject.getId(), testDocument.getId())
+                    .getState()) //
+                            .as("The document keeps its state") //
+                            .isEqualTo(ANNOTATION_FINISHED);
+        }
+
+        @Test
+        void resetCuration_ShouldDecideOnTheCurrentStateNotOnAStaleCopy() throws Exception
+        {
+            // A copy of the document loaded before a curator moved it into curation
+            var staleCopy = new SourceDocument(testDocument.getName(), testProject,
+                    testDocument.getFormat());
+            staleCopy.setId(testDocument.getId());
+            staleCopy.setState(ANNOTATION_FINISHED);
+
+            documentService.setSourceDocumentState(testDocument, CURATION_IN_PROGRESS);
+            writeCurationCasFor(testDocument);
+            applicationEvents.clear();
+
+            try (var session = openNested(true)) {
+                assertThat(sut.resetCuration(staleCopy)) //
+                        .as("The document is in curation, although the copy claims otherwise") //
+                        .isTrue();
+            }
+
+            assertThat(documentService.getSourceDocument(testProject.getId(), testDocument.getId())
+                    .getState()) //
+                            .as("The stale state is not written back") //
+                            .isEqualTo(ANNOTATION_IN_PROGRESS);
+            assertThat(applicationEvents.stream(DocumentStateChangedEvent.class)) //
+                    .as("The state change is announced from the current state") //
+                    .singleElement() //
+                    .satisfies(e -> {
+                        assertThat(e.getPreviousState()).isEqualTo(CURATION_IN_PROGRESS);
+                        assertThat(e.getNewState()).isEqualTo(ANNOTATION_IN_PROGRESS);
+                    });
+        }
+
+        private AnnotationDocument createCurationAnnotationDocument(SourceDocument aDocument,
+                AnnotationDocumentState aState)
+        {
+            return testEntityManager.persist(AnnotationDocument.builder() //
+                    .withUser(CURATION_USER) //
+                    .forDocument(aDocument) //
+                    .withState(aState) //
+                    .build());
+        }
     }
 
     @SpringBootConfiguration

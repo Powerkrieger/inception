@@ -46,8 +46,8 @@ import de.tudarmstadt.ukp.inception.recommendation.api.model.SuggestionDocumentG
 import de.tudarmstadt.ukp.inception.recommendation.api.model.SuggestionGroup;
 import de.tudarmstadt.ukp.inception.recommendation.api.recommender.RecommendationEngineFactory;
 import de.tudarmstadt.ukp.inception.recommendation.api.recommender.RecommenderContext;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.support.logging.LogMessageGroup;
 
 /**
@@ -325,11 +325,14 @@ public interface RecommendationService
     void triggerPrediction(String aSessionOwner, String aEventName, SourceDocument aDocument,
             String aDocumentOwner);
 
+    void triggerPrediction(String aSessionOwner, String aEventName, Project aProject,
+            String aDataOwner);
+
     void triggerTrainingAndPrediction(String aSessionOwner, Project aProject, String aEventName,
-            SourceDocument aCurrentDocument, String aDocumentOwner);
+            SourceDocument aCurrentDocument, String aDataOwner);
 
     void triggerSelectionTrainingAndPrediction(String aSessionOwner, Project aProject,
-            String aEventName, SourceDocument aCurrentDocument, String aDocumentOwner);
+            String aEventName, SourceDocument aCurrentDocument, String aDataOwner);
 
     boolean isPredictForAllDocuments(String aSessionOwner, Project aProject);
 

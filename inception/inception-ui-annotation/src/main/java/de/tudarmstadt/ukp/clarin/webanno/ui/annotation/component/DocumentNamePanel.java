@@ -21,13 +21,13 @@ import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visible
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visibleWhenNot;
 import static org.apache.wicket.RuntimeConfigurationType.DEVELOPMENT;
 
+import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.markup.html.WebMarkupContainer;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
 import de.tudarmstadt.ukp.clarin.webanno.export.model.ExportedProject;
 import de.tudarmstadt.ukp.clarin.webanno.export.model.ExportedSourceDocument;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
@@ -47,18 +47,9 @@ public class DocumentNamePanel
 
     private @SpringBean UserDao userService;
 
-    public DocumentNamePanel(String id, final IModel<AnnotatorState> aModel)
-    {
-        this(id, aModel, null);
-    }
-
     /**
      * @param aEditable
-     *            whether the described editor is editable; controls the read-only badge. When
-     *            {@code null}, editability is derived from the enclosing {@link AnnotationPageBase}
-     *            (legacy behavior). Pass an explicit model when the panel is not hosted directly by
-     *            the page it describes - e.g. an editor embedded in a sidebar, whose editability
-     *            differs from the surrounding page.
+     *            whether the described editor is editable; controls the read-only badge.
      */
     public DocumentNamePanel(String id, final IModel<AnnotatorState> aModel,
             IModel<Boolean> aEditable)
@@ -66,24 +57,24 @@ public class DocumentNamePanel
         super(id, aModel);
         setOutputMarkupId(true);
 
-        var editable = aEditable != null ? aEditable : (IModel<Boolean>) () -> {
-            var page = findParent(AnnotationPageBase.class);
-            return page != null ? page.isEditable() : true;
-        };
-        queue(new WebMarkupContainer("read-only").add(visibleWhen(() -> !editable.getObject())));
+        queue(new WebMarkupContainer("read-only").add(
+                visibleWhen(() -> aModel.map(AnnotatorState::getDocument).isPresent().getObject()
+                        && !aEditable.getObject())));
         queue(new Label("user", aModel.map(AnnotatorState::getUser).map(User::getUiName))
                 .add(visibleWhenNot(aModel.map(AnnotatorState::getUser)
                         .map(u -> u.getUsername().equals(userService.getCurrentUsername())))));
-        queue(new Label("project", aModel.map(AnnotatorState::getProject).map(Project::getName)));
+        var projectName = aModel.map(AnnotatorState::getProject).map(Project::getName);
+        queue(new WebMarkupContainer("projectBadge")
+                .add(AttributeModifier.replace("title", projectName)));
+        queue(new Label("project", projectName));
         queue(new Label("projectId", aModel.map(AnnotatorState::getProject).map(Project::getId))
                 .add(visibleWhen(() -> DEVELOPMENT == getApplication().getConfigurationType())));
-        // The document badge (controlled via wicket:enclosure) must hide when no document is
-        // selected - otherwise it renders as an empty name with an empty "()" id (e.g. in the
-        // reference-document sidebar before a document has been loaded). A Label with a null model
-        // still counts as visible, so guard visibility explicitly on the document being present.
-        queue(new Label("document",
-                aModel.map(AnnotatorState::getDocument).map(SourceDocument::getName))
-                        .add(visibleWhen(aModel.map(AnnotatorState::getDocument).isPresent())));
+
+        var documentName = aModel.map(AnnotatorState::getDocument).map(SourceDocument::getName);
+        queue(new WebMarkupContainer("documentBadge") //
+                .add(AttributeModifier.replace("title", documentName)) //
+                .add(visibleWhen(aModel.map(AnnotatorState::getDocument).isPresent())));
+        queue(new Label("document", documentName));
         queue(new Label("documentId",
                 aModel.map(AnnotatorState::getDocument).map(SourceDocument::getId)).add(
                         visibleWhen(() -> DEVELOPMENT == getApplication().getConfigurationType())));

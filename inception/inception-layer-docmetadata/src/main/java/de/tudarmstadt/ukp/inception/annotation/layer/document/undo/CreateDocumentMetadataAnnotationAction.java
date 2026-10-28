@@ -28,9 +28,9 @@ import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.actionbar.undo.actions.Re
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.actionbar.undo.actions.UndoableAnnotationAction;
 import de.tudarmstadt.ukp.inception.annotation.layer.document.api.DocumentMetadataLayerAdapter;
 import de.tudarmstadt.ukp.inception.annotation.layer.document.api.event.DocumentMetadataEvent;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.support.logging.LogMessage;
 
 public class CreateDocumentMetadataAnnotationAction
@@ -50,7 +50,7 @@ public class CreateDocumentMetadataAnnotationAction
         throws AnnotationException
     {
         var adapter = aSchemaService.getAdapter(getLayer());
-        adapter.delete(getDocument(), getUser(), aCas, getVid());
+        adapter.delete(getDocument(), getDataOwner(), aCas, getVid());
         aMessages.add(LogMessage.info(this, "[%s] deleted", getLayer().getUiName()));
         return Optional.empty();
     }
@@ -61,7 +61,7 @@ public class CreateDocumentMetadataAnnotationAction
         throws AnnotationException
     {
         var adapter = (DocumentMetadataLayerAdapter) aSchemaService.getAdapter(getLayer());
-        adapter.restore(getDocument(), getUser(), aCas, getVid());
+        adapter.restore(getDocument(), getDataOwner(), aCas, getVid());
         aMessages.add(LogMessage.info(this, "[%s] restored", getLayer().getUiName()));
         return Optional.empty();
     }

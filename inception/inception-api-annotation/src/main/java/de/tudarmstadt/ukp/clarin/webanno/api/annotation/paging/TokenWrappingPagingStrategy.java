@@ -25,13 +25,12 @@ import java.util.List;
 
 import org.apache.uima.cas.CAS;
 import org.apache.wicket.Component;
-import org.apache.wicket.Page;
-import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.model.IModel;
 
-import de.tudarmstadt.ukp.inception.diam.model.DiamContext;
 import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Token;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
+import de.tudarmstadt.ukp.inception.rendering.paging.PagingStrategy_ImplBase;
 import de.tudarmstadt.ukp.inception.rendering.paging.Unit;
 
 public class TokenWrappingPagingStrategy
@@ -119,20 +118,12 @@ public class TokenWrappingPagingStrategy
     @Override
     public Component createPositionLabel(String aId, IModel<AnnotatorState> aModel)
     {
-        Label label = new Label(aId, () -> {
-            AnnotatorState state = aModel.getObject();
-            return String.format("%d-%d / %d blocks [doc %d / %d]",
-                    state.getFirstVisibleUnitIndex(), state.getLastVisibleUnitIndex(),
-                    state.getUnitCount(), state.getDocumentIndex() + 1,
-                    state.getNumberOfDocuments());
-        });
-        label.setOutputMarkupPlaceholderTag(true);
-        return label;
+        return new PositionInfoPanel(aId, aModel, "blocks");
     }
 
     @Override
-    public DefaultPagingNavigator createPageNavigator(String aId, Page aPage)
+    public DefaultPagingNavigator createPageNavigator(String aId, DiamContext aEditor)
     {
-        return new DefaultPagingNavigator(aId, (DiamContext) aPage);
+        return new DefaultPagingNavigator(aId, aEditor);
     }
 }

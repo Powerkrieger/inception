@@ -21,10 +21,13 @@
   <wicket:panel>
     <div id="annotationDetailEditorPanel" class="flex-content flex-v-container">
       <div wicket:id=deleteAnnotationDialog/>
-      <div id="annotationFeatureForm" class="annotatation-detail-panel flex-content flex-v-container flex-gutter">
+      <div id="annotationFeatureForm" class="annotatation-detail-panel flex-content flex-v-container flex-gutter flex-only-internal-gutter">
         <div wicket:id="layerContainer" class="card"/>
         <div class="flex-content panel card">
           <div wicket:id="header" class="card-header">
+            <div wicket:id="floatingInfo" class="small text-muted mb-1">
+              <span wicket:id="floatingOwner"/>
+            </div>
             <div class="clearfix">
               <span wicket:id="layerType"/>
               <div wicket:id="buttonContainer" class="actions">

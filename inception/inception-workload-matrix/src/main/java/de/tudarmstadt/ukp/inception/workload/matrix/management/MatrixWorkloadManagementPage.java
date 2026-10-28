@@ -30,6 +30,7 @@ import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.ANNOTATOR;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.CURATOR;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.MANAGER;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.ANNOTATION_IN_PROGRESS;
+import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_DOCUMENT_STATES;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_FINISHED;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_IN_PROGRESS;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentStateTransition.CURATION_FINISHED_TO_CURATION_IN_PROGRESS;
@@ -42,8 +43,8 @@ import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visible
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.time.Duration.ofMillis;
-import static java.util.Arrays.asList;
 import static java.util.regex.Pattern.CASE_INSENSITIVE;
+import static java.util.stream.Collectors.toCollection;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toSet;
 import static org.apache.commons.csv.CSVFormat.EXCEL;
@@ -221,8 +222,7 @@ public class MatrixWorkloadManagementPage
             AnnotationDocumentState.NEW, AnnotationDocumentState.IN_PROGRESS,
             AnnotationDocumentState.FINISHED);
 
-    private static final Set<SourceDocumentState> EXPORTABLE_DOCUMENT_STATES = Set
-            .of(SourceDocumentState.CURATION_FINISHED, SourceDocumentState.CURATION_IN_PROGRESS);
+    private static final Set<SourceDocumentState> EXPORTABLE_DOCUMENT_STATES = CURATION_DOCUMENT_STATES;
 
     private LoadableDetachableModel<Boolean> curationSelectedModel;
 
@@ -597,7 +597,7 @@ public class MatrixWorkloadManagementPage
 
     private void actionBulkResetCuration(AjaxRequestTarget aTarget)
     {
-        var selectedDocuments = new ArrayList<>(selectedSourceDocuments());
+        var selectedDocuments = selectedSourceDocuments();
 
         if (selectedDocuments.isEmpty()) {
             info("No documents have been selected.");
@@ -605,23 +605,31 @@ public class MatrixWorkloadManagementPage
             return;
         }
 
-        var dialogContent = new ResetCurationConfirmationDialogContentPanel(ModalDialog.CONTENT_ID,
-                Model.ofList(selectedDocuments));
+        var documentsToReset = selectedDocuments.stream() //
+                .filter(d -> CURATION_DOCUMENT_STATES.contains(d.getState())) //
+                .collect(toCollection(ArrayList::new));
 
-        if (selectedDocuments.size() == 1) {
-            var doc = selectedDocuments.get(0);
-            dialogContent.setExpectedResponseModel(Model.of(doc.getName()));
+        if (documentsToReset.isEmpty()) {
+            info("None of the selected documents is in curation.");
+            aTarget.addChildren(getPage(), IFeedback.class);
+            return;
+        }
+
+        var documentsWithCurationData = documentsToReset.stream() //
+                .filter(this::existsCurationCas) //
+                .count();
+
+        var dialogContent = new ResetCurationConfirmationDialogContentPanel(ModalDialog.CONTENT_ID,
+                Model.ofList(documentsToReset), documentsWithCurationData);
+
+        if (documentsToReset.size() == 1) {
+            dialogContent.setExpectedResponseModel(Model.of(documentsToReset.get(0).getName()));
         }
         else {
             dialogContent.setExpectedResponseModel(Model.of(getProject().getName()));
         }
 
-        var statesToReset = asList(CURATION_IN_PROGRESS, CURATION_FINISHED);
         dialogContent.setConfirmAction(_target -> {
-            var documentsToReset = selectedDocuments.stream() //
-                    .filter(d -> statesToReset.contains(d.getState())) //
-                    .toList();
-
             documentService.bulkSetSourceDocumentState(documentsToReset, ANNOTATION_IN_PROGRESS);
 
             for (var doc : documentsToReset) {
@@ -639,6 +647,18 @@ public class MatrixWorkloadManagementPage
         });
 
         modalDialog.open(dialogContent, aTarget);
+    }
+
+    private boolean existsCurationCas(SourceDocument aDocument)
+    {
+        try {
+            return curationService.existsCurationCas(aDocument);
+        }
+        catch (IOException e) {
+            LOG.warn("Unable to determine whether curation data exists for {} - assuming it does",
+                    aDocument, e);
+            return true;
+        }
     }
 
     private void actionExportAnnotationDocument(AjaxRequestTarget aTarget, SourceDocument aDocument,
@@ -756,6 +776,8 @@ public class MatrixWorkloadManagementPage
             success(format("The curation of document [%s] has been set reset.",
                     aDocument.getName()));
             _target.addChildren(getPage(), IFeedback.class);
+
+            matrixWorkloadExtension.recalculate(aDocument);
 
             reloadMatrixData();
             _target.add(documentMatrix, stateIcon, projectDocumentStatsPanel);
@@ -1022,6 +1044,7 @@ public class MatrixWorkloadManagementPage
         selectedUsers.getObject().clear();
 
         schedulingService.executeSync(RecalculateProjectStateTask.builder() //
+                .asSystemTask() //
                 .withProject(getProject()) //
                 .withTrigger("Workload configuration changed") //
                 .build());
@@ -1278,7 +1301,7 @@ public class MatrixWorkloadManagementPage
     {
         var state = aEvent.getSourceDocument().getState();
 
-        if (state != CURATION_IN_PROGRESS && state != CURATION_FINISHED) {
+        if (!CURATION_DOCUMENT_STATES.contains(state)) {
             info("Documents on which curation has not yet been started cannot be reset.");
             aEvent.getTarget().addChildren(getPage(), IFeedback.class);
             return;

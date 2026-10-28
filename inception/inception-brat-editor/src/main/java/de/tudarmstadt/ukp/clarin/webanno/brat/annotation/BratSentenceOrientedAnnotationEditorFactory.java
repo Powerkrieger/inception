@@ -25,8 +25,9 @@ import de.tudarmstadt.ukp.clarin.webanno.brat.config.BratAnnotationEditorAutoCon
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.inception.editor.AnnotationEditorBase;
 import de.tudarmstadt.ukp.inception.editor.AnnotationEditorFactoryImplBase;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 
 /**
@@ -65,9 +66,11 @@ public class BratSentenceOrientedAnnotationEditorFactory
 
     @Override
     public AnnotationEditorBase create(String aId, IModel<AnnotatorState> aModel,
-            AnnotationActionHandler aActionHandler, CasProvider aCasProvider)
+            DocumentEditorManager aManager, AnnotationActionHandler aActionHandler,
+            CasProvider aCasProvider)
     {
-        return new BratAnnotationEditor(aId, aModel, aActionHandler, aCasProvider, getBeanName());
+        return new BratAnnotationEditor(aId, aModel, aManager, aActionHandler, aCasProvider,
+                getBeanName());
     }
 
     @Override

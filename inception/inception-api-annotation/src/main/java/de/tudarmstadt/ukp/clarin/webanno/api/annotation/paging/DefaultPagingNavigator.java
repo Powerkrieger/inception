@@ -17,9 +17,7 @@
  */
 package de.tudarmstadt.ukp.clarin.webanno.api.annotation.paging;
 
-import static wicket.contrib.input.events.EventType.click;
-
-import org.apache.uima.cas.CAS;
+import org.apache.commons.lang3.Validate;
 import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.markup.html.form.Form;
@@ -29,12 +27,14 @@ import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
 import org.apache.wicket.model.PropertyModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
+import org.danekja.java.util.function.serializable.SerializableSupplier;
 import org.wicketstuff.event.annotation.OnEvent;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.config.KeyBindingsProperties;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.config.KeyBindingsUtil;
-import de.tudarmstadt.ukp.inception.diam.model.DiamContext;
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.config.KeyCombo;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
 import de.tudarmstadt.ukp.inception.rendering.selection.AnnotatorViewportChangedEvent;
 import de.tudarmstadt.ukp.inception.rendering.selection.FocusPosition;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
@@ -48,24 +48,27 @@ public class DefaultPagingNavigator
 
     private @SpringBean KeyBindingsProperties keyBindings;
 
-    private DiamContext context;
+    private final DiamContext editorContext;
     private NumberTextField<Integer> gotoPageTextField;
     private FocusPosition defaultFocusPosition = FocusPosition.TOP;
 
-    public DefaultPagingNavigator(String aId, DiamContext aContext)
+    public DefaultPagingNavigator(String aId, DiamContext aEditor)
     {
         super(aId);
 
+        Validate.notNull(aEditor, "DiamContext must be set");
+
         setOutputMarkupPlaceholderTag(true);
 
-        context = aContext;
+        editorContext = aEditor;
 
         Form<Void> form = new Form<>("form");
         gotoPageTextField = new NumberTextField<>("gotoPageText", Model.of(1), Integer.class);
         // Using a LambdaModel here because the annotator state may change and we want to always get
         // the right one
         gotoPageTextField.setModel(PropertyModel.of(
-                LoadableDetachableModel.of(aContext::getAnnotatorState), "firstVisibleUnitIndex"));
+                LoadableDetachableModel.of(() -> editorContext.getAnnotatorState()),
+                "firstVisibleUnitIndex"));
         // FIXME minimum and maximum should be obtained from the annotator state
         gotoPageTextField.setMinimum(1);
         // gotoPageTextField.setMaximum(LambdaModel.of(() ->
@@ -77,83 +80,74 @@ public class DefaultPagingNavigator
         form.add(gotoPageLink);
         add(form);
 
-        form.add(new LambdaAjaxLink("showNext", t -> actionShowNextPage(t))
-                .add(keyBindings.getNavigation().getNextPage().toInputBehavior(click))
-                .add(AttributeModifier.append("title", () -> " ("
-                        + KeyBindingsUtil.formatShortcut(keyBindings.getNavigation().getNextPage())
-                        + ")")));
-
-        form.add(
-                new LambdaAjaxLink("showPrevious", t -> actionShowPreviousPage(t))
-                        .add(keyBindings.getNavigation().getPreviousPage().toInputBehavior(click))
-                        .add(AttributeModifier.append("title",
-                                () -> " ("
-                                        + KeyBindingsUtil.formatShortcut(
-                                                keyBindings.getNavigation().getPreviousPage())
-                                        + ")")));
-
-        form.add(
-                new LambdaAjaxLink("showFirst", t -> actionShowFirstPage(t))
-                        .add(keyBindings.getNavigation().getFirstPage().toInputBehavior(click))
-                        .add(AttributeModifier.append("title",
-                                () -> " ("
-                                        + KeyBindingsUtil.formatShortcut(
-                                                keyBindings.getNavigation().getFirstPage())
-                                        + ")")));
-
-        form.add(new LambdaAjaxLink("showLast", t -> actionShowLastPage(t))
-                .add(keyBindings.getNavigation().getLastPage().toInputBehavior(click))
-                .add(AttributeModifier.append("title", () -> " ("
-                        + KeyBindingsUtil.formatShortcut(keyBindings.getNavigation().getLastPage())
-                        + ")")));
+        form.add(withShortcutHint(new LambdaAjaxLink("showNext", this::actionShowNextPage),
+                () -> keyBindings.getNavigation().getNextPage()));
+        form.add(withShortcutHint(new LambdaAjaxLink("showPrevious", this::actionShowPreviousPage),
+                () -> keyBindings.getNavigation().getPreviousPage()));
+        form.add(withShortcutHint(new LambdaAjaxLink("showFirst", this::actionShowFirstPage),
+                () -> keyBindings.getNavigation().getFirstPage()));
+        form.add(withShortcutHint(new LambdaAjaxLink("showLast", this::actionShowLastPage),
+                () -> keyBindings.getNavigation().getLastPage()));
 
         form.add(LambdaBehavior.visibleWhen(() -> !contentFitsFullyIntoVisibleWindow()));
     }
 
-    private boolean contentFitsFullyIntoVisibleWindow()
+    /**
+     * Advertise the page-wide keyboard shortcut in a button's tooltip.
+     * <p>
+     * Only the hint lives here - the binding itself belongs to {@code PagingKeyBindingsPanel},
+     * because a shortcut is a page-wide resource while this navigator is per-editor. The two agree
+     * on the action but not on the target: the shortcut moves whichever editor is active, this
+     * button always moves its own.
+     */
+    private LambdaAjaxLink withShortcutHint(LambdaAjaxLink aLink,
+            SerializableSupplier<KeyCombo> aCombo)
     {
-        AnnotatorState state = context.getAnnotatorState();
-        return state.getUnitCount() <= state.getPreferences().getWindowSize();
+        aLink.add(AttributeModifier.append("title",
+                () -> " (" + KeyBindingsUtil.formatShortcut(aCombo.get()) + ")"));
+        return aLink;
     }
 
-    public AnnotatorState getModelObject()
+    private boolean contentFitsFullyIntoVisibleWindow()
     {
-        return context.getAnnotatorState();
+        var state = editorContext.getViewState();
+        return state.getUnitCount() <= state.getPreferences().getWindowSize();
     }
 
     protected void actionShowPreviousPage(AjaxRequestTarget aTarget) throws Exception
     {
-        CAS cas = context.getEditorCas();
-        getModelObject().moveToPreviousPage(cas, defaultFocusPosition);
-        context.actionRefreshDocument(aTarget);
+        var cas = editorContext.getEditorCas();
+        editorContext.getViewState().moveToPreviousPage(cas, defaultFocusPosition);
+        editorContext.actionRefreshDocument(aTarget);
     }
 
     protected void actionShowNextPage(AjaxRequestTarget aTarget) throws Exception
     {
-        CAS cas = context.getEditorCas();
-        getModelObject().moveToNextPage(cas, defaultFocusPosition);
-        context.actionRefreshDocument(aTarget);
+        var cas = editorContext.getEditorCas();
+        editorContext.getViewState().moveToNextPage(cas, defaultFocusPosition);
+        editorContext.actionRefreshDocument(aTarget);
     }
 
     protected void actionShowFirstPage(AjaxRequestTarget aTarget) throws Exception
     {
-        CAS cas = context.getEditorCas();
-        getModelObject().moveToFirstPage(cas, defaultFocusPosition);
-        context.actionRefreshDocument(aTarget);
+        var cas = editorContext.getEditorCas();
+        editorContext.getViewState().moveToFirstPage(cas, defaultFocusPosition);
+        editorContext.actionRefreshDocument(aTarget);
     }
 
     protected void actionShowLastPage(AjaxRequestTarget aTarget) throws Exception
     {
-        CAS cas = context.getEditorCas();
-        getModelObject().moveToLastPage(cas, defaultFocusPosition);
-        context.actionRefreshDocument(aTarget);
+        var cas = editorContext.getEditorCas();
+        editorContext.getViewState().moveToLastPage(cas, defaultFocusPosition);
+        editorContext.actionRefreshDocument(aTarget);
     }
 
     private void actionGotoPage(AjaxRequestTarget aTarget, Form<?> aForm) throws Exception
     {
-        CAS cas = context.getEditorCas();
-        getModelObject().moveToUnit(cas, gotoPageTextField.getModelObject(), defaultFocusPosition);
-        context.actionRefreshDocument(aTarget);
+        var cas = editorContext.getEditorCas();
+        editorContext.getViewState().moveToUnit(cas, gotoPageTextField.getModelObject(),
+                defaultFocusPosition);
+        editorContext.actionRefreshDocument(aTarget);
     }
 
     public void setDefaultFocusPosition(FocusPosition aPos)
@@ -173,7 +167,7 @@ public class DefaultPagingNavigator
     public void onAnnotatorViewStateChangedEvent(AnnotatorViewportChangedEvent aEvent)
     {
         // Only react to viewport changes in the editor this navigator belongs to (#6146).
-        if (!aEvent.isFor(getModelObject())) {
+        if (!aEvent.isFor(editorContext.getAnnotatorState())) {
             return;
         }
 

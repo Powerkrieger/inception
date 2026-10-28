@@ -26,7 +26,6 @@ import java.util.List;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.feedback.IFeedback;
 import org.apache.wicket.request.IRequestParameters;
-import org.apache.wicket.request.Request;
 import org.springframework.core.annotation.Order;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.exception.IllegalPlacementException;
@@ -37,14 +36,14 @@ import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Token;
 import de.tudarmstadt.ukp.inception.annotation.layer.chain.api.ChainAdapter;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.CreateRelationAnnotationRequest;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationAdapter;
-import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
+import de.tudarmstadt.ukp.inception.diam.editor.DiamRequest;
 import de.tudarmstadt.ukp.inception.diam.editor.config.DiamAutoConfig;
-import de.tudarmstadt.ukp.inception.diam.model.DiamContext;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.DefaultAjaxResponse;
 import de.tudarmstadt.ukp.inception.editor.ContextMenuLookup;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.config.AnnotationSchemaProperties;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaMenuItem;
 import de.tudarmstadt.ukp.inception.support.lambda.MenuCategoryHeader;
@@ -82,11 +81,10 @@ public class CreateRelationAnnotationHandler
     }
 
     @Override
-    public DefaultAjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-            Request aRequest)
+    public DefaultAjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
     {
         try {
-            actionArc(aBehavior, aTarget, aRequest.getRequestParameters());
+            actionArc(aRequest, aTarget, aRequest.getRequestParameters());
             return new DefaultAjaxResponse(getAction(aRequest));
         }
         catch (Exception e) {
@@ -94,19 +92,19 @@ public class CreateRelationAnnotationHandler
         }
     }
 
-    private void actionArc(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
+    private void actionArc(DiamRequest aRequest, AjaxRequestTarget aTarget,
             IRequestParameters aParams)
         throws IOException, AnnotationException
     {
         var originSpan = VID.parse(aParams.getParameterValue(PARAM_ORIGIN_SPAN_ID).toString());
         var targetSpan = VID.parse(aParams.getParameterValue(PARAM_TARGET_SPAN_ID).toString());
 
-        var cm = aBehavior.getContextMenu();
+        var cm = aRequest.getContextMenuLookup().getContextMenu();
         var clientX = cm.getClientX().getAsInt();
         var clientY = cm.getClientY().getAsInt();
 
-        actionArc(aBehavior.getContext(), aBehavior, aTarget, originSpan, targetSpan, clientX,
-                clientY);
+        actionArc(aRequest.getContext(), aRequest.getContextMenuLookup(), aTarget, originSpan,
+                targetSpan, clientX, clientY);
     }
 
     public void actionArc(DiamContext aContext, ContextMenuLookup aBehavior,
@@ -114,6 +112,7 @@ public class CreateRelationAnnotationHandler
         throws NotEditableException, IOException, AnnotationException, IllegalPlacementException
     {
         aContext.getActionHandler().ensureIsEditable();
+        aContext.activate(aTarget);
 
         if (originSpan.isSynthetic() || targetSpan.isSynthetic()) {
             var page = getPage();
@@ -123,9 +122,8 @@ public class CreateRelationAnnotationHandler
         }
 
         var cas = aContext.getEditorCas();
-        var state = aContext.getAnnotatorState();
         var originFs = selectAnnotationByAddr(cas, originSpan.getId());
-        var originLayer = schemaService.findLayer(state.getProject(), originFs);
+        var originLayer = schemaService.findLayer(aContext.getProject(), originFs);
         var originAdapter = schemaService.getAdapter(originLayer);
 
         if (originAdapter instanceof ChainAdapter chainAdapter) {
@@ -150,7 +148,7 @@ public class CreateRelationAnnotationHandler
                     "Cannot create links between chain elements on different layers");
         }
 
-        var state = aContext.getAnnotatorState();
+        var state = aContext.getViewState();
         var request = new CreateRelationAnnotationRequest(state.getDocument(),
                 state.getUser().getUsername(), cas, originFs, targetFs);
 
@@ -161,13 +159,14 @@ public class CreateRelationAnnotationHandler
                 state.getUser().getUsername(), ann)) {
             for (var feature : chainAdapter.listFeatures()) {
                 if (feature.isRemember()) {
-                    var value = state.getRememberedArcFeatures().get(feature);
+                    var value = aContext.getAnnotatorState().getRememberedArcFeatures()
+                            .get(feature);
                     ctx.setFeatureValue(feature, value);
                 }
             }
         }
 
-        commitAnnotation(aTarget, aContext, state, selection);
+        commitAnnotation(aTarget, aContext, selection);
 
     }
 
@@ -247,6 +246,8 @@ public class CreateRelationAnnotationHandler
             }
         }
 
-        commitAnnotation(aTarget, aContext, state, selection);
+        aContext.activate(aTarget);
+
+        commitAnnotation(aTarget, aContext, selection);
     }
 }

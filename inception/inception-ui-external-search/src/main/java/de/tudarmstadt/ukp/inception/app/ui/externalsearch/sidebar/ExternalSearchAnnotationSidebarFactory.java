@@ -22,16 +22,15 @@ import org.apache.wicket.model.IModel;
 import org.springframework.core.annotation.Order;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
-import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
-import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebarFactory_ImplBase;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
 import de.tudarmstadt.ukp.inception.app.ui.externalsearch.config.ExternalSearchUIAutoConfiguration;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.externalsearch.ExternalSearchService;
-import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorViewState;
+import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.SidebarContext;
+import de.tudarmstadt.ukp.inception.workload.model.WorkloadManagementService;
 
 /**
  * Sidebar to access the external search on the annotation page.
@@ -45,10 +44,13 @@ public class ExternalSearchAnnotationSidebarFactory
     extends AnnotationSidebarFactory_ImplBase
 {
     private final ExternalSearchService externalSearchService;
+    private final WorkloadManagementService workloadManagementService;
 
-    public ExternalSearchAnnotationSidebarFactory(ExternalSearchService aExternalSearchService)
+    public ExternalSearchAnnotationSidebarFactory(ExternalSearchService aExternalSearchService,
+            WorkloadManagementService aWorkloadManagementService)
     {
         externalSearchService = aExternalSearchService;
+        workloadManagementService = aWorkloadManagementService;
     }
 
     @Override
@@ -61,32 +63,27 @@ public class ExternalSearchAnnotationSidebarFactory
     public String getDescription()
     {
         return "Allows searching document repositories and importing documents. Only available if "
-                + "there are document repositories defined in the project.";
+                + "there are document repositories defined in the project and the user may open "
+                + "documents in any order.";
     }
 
     @Override
-    public Component createIcon(String aId, IModel<AnnotatorState> aState)
+    public Component createIcon(String aId, IModel<AnnotatorViewState> aState)
     {
-        return new Icon(aId, FontAwesome5IconType.database_s);
+        return new Icon(aId, FontAwesome7IconType.database_s);
     }
 
     @Override
     public boolean available(Project aProject)
     {
-        return externalSearchService.existsEnabledDocumentRepository(aProject);
+        return externalSearchService.existsEnabledDocumentRepository(aProject)
+                && workloadManagementService.getWorkloadManagerExtension(aProject)
+                        .isDocumentRandomAccessAllowed(aProject);
     }
 
     @Override
-    public boolean applies(AnnotatorState aState)
+    public AnnotationSidebar_ImplBase create(String aId, SidebarContext aContext)
     {
-        return available(aState.getProject());
-    }
-
-    @Override
-    public AnnotationSidebar_ImplBase create(String aId, AnnotationActionHandler aActionHandler,
-            CasProvider aCasProvider, AnnotationPageBase2 aAnnotationPage)
-    {
-        return new ExternalSearchAnnotationSidebar(aId, aActionHandler, aCasProvider,
-                aAnnotationPage);
+        return new ExternalSearchAnnotationSidebar(aId, aContext);
     }
 }

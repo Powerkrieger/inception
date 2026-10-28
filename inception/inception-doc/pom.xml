@@ -20,7 +20,7 @@
   <parent>
     <groupId>de.tudarmstadt.ukp.inception.app</groupId>
     <artifactId>inception-app</artifactId>
-    <version>42.0-SNAPSHOT</version>
+    <version>43.0-SNAPSHOT</version>
   </parent>
   <artifactId>inception-doc</artifactId>
   <packaging>jar</packaging>
@@ -71,10 +71,58 @@
       <version>${asciidoctor-diagram.version}</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.asciidoctor</groupId>
+      <artifactId>asciidoctorj-diagram-plantuml</artifactId>
+      <version>${asciidoctor-diagram-plantuml.version}</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
   <build>
+    <!--
+      The example scripts (Docker Compose, Kubernetes) are included into the
+      documentation *and* shipped as downloadable files. They therefore cannot
+      use Asciidoc attributes like {revnumber} to refer to the current version:
+      those are substituted when a script is included into a page, but not in
+      the copies that asciidoctor passes through verbatim into the generated
+      documentation - which is what users end up downloading.
+
+      Instead, the scripts use @project.version@, which is replaced here, so
+      that both the included listings and the downloadable files show the real
+      version.
+
+      The delimiter must be restricted to @...@: the scripts are full of
+      shell-style ${VARIABLE:-default} expressions which Maven would otherwise
+      try to interpolate.
+    -->
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+        <includes>
+          <include>**/asciidoc/**/scripts/*.yml</include>
+        </includes>
+        <filtering>true</filtering>
+      </resource>
+      <resource>
+        <directory>src/main/resources</directory>
+        <excludes>
+          <exclude>**/asciidoc/**/scripts/*.yml</exclude>
+        </excludes>
+        <filtering>false</filtering>
+      </resource>
+    </resources>
     <pluginManagement>
       <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <configuration>
+            <delimiters>
+              <delimiter>@</delimiter>
+            </delimiters>
+            <useDefaultDelimiters>false</useDefaultDelimiters>
+          </configuration>
+        </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-dependency-plugin</artifactId>
@@ -85,6 +133,7 @@
               -->
               <usedDependency>org.asciidoctor:asciidoctorj</usedDependency>
               <usedDependency>org.asciidoctor:asciidoctorj-diagram</usedDependency>
+              <usedDependency>org.asciidoctor:asciidoctorj-diagram-plantuml</usedDependency>
               <!--
                 - Maven doesn't detect JS dependencies. We use this in docinfo.html
               -->

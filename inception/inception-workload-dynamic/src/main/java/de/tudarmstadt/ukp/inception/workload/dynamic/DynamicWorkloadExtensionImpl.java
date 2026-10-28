@@ -23,8 +23,6 @@ import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.MANAGER;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.ANNOTATION_FINISHED;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.ANNOTATION_IN_PROGRESS;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_DOCUMENT_STATES;
-import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_FINISHED;
-import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_IN_PROGRESS;
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet.CURATION_SET;
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet.INITIAL_SET;
 import static de.tudarmstadt.ukp.inception.support.json.JSONUtil.fromJsonString;
@@ -35,6 +33,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -63,6 +62,7 @@ import de.tudarmstadt.ukp.inception.workload.dynamic.config.DynamicWorkloadManag
 import de.tudarmstadt.ukp.inception.workload.dynamic.trait.DynamicWorkloadTraits;
 import de.tudarmstadt.ukp.inception.workload.dynamic.workflow.WorkflowExtensionPoint;
 import de.tudarmstadt.ukp.inception.workload.dynamic.workflow.types.DefaultWorkflowExtension;
+import de.tudarmstadt.ukp.inception.workload.extension.CurationReadinessWarning;
 import de.tudarmstadt.ukp.inception.workload.model.WorkloadManagementService;
 import de.tudarmstadt.ukp.inception.workload.model.WorkloadManager;
 
@@ -225,10 +225,28 @@ public class DynamicWorkloadExtensionImpl
             updateDocumentState(doc, traits.getDefaultNumberOfAnnotations());
         }
 
-        // Refresh the project stats and recalculate them
+        return recalculateProjectState(aProject);
+    }
+
+    @Override
+    @Transactional
+    public ProjectState recalculate(SourceDocument aDocument)
+    {
+        var project = aDocument.getProject();
+
+        updateDocumentState(aDocument, requiredAnnotatorCount(project));
+
+        return recalculateProjectState(project);
+    }
+
+    /**
+     * Refresh the project stats and recalculate the project state from them.
+     */
+    private ProjectState recalculateProjectState(Project aProject)
+    {
         var project = projectService.getProject(aProject.getId());
         var stats = documentService.getSourceDocumentStats(project);
-        projectService.setProjectState(aProject, stats.getProjectState());
+        projectService.setProjectState(project, stats.getProjectState());
 
         return project.getState();
     }
@@ -256,8 +274,7 @@ public class DynamicWorkloadExtensionImpl
         var abandonationTimeout = traits.getAbandonationTimeout();
         for (var doc : inProgressDocuments) {
             // If the SOURCE document is already in curation, we do not touch the state anymore
-            if (doc.getDocument().getState() == CURATION_FINISHED
-                    || doc.getDocument().getState() == CURATION_IN_PROGRESS) {
+            if (CURATION_DOCUMENT_STATES.contains(doc.getDocument().getState())) {
                 continue;
             }
 
@@ -308,12 +325,7 @@ public class DynamicWorkloadExtensionImpl
             updateDocumentState(docSet.getKey(), traits.getDefaultNumberOfAnnotations());
         }
 
-        // Refresh the project stats and recalculate them
-        var project = projectService.getProject(aProject.getId());
-        var stats = documentService.getSourceDocumentStats(project);
-        projectService.setProjectState(aProject, stats.getProjectState());
-
-        return project.getState();
+        return recalculateProjectState(aProject);
     }
 
     @Override
@@ -321,17 +333,11 @@ public class DynamicWorkloadExtensionImpl
     public void updateDocumentState(SourceDocument aDocument, int aRequiredAnnotatorCount)
     {
         // If the SOURCE document is already in curation, we do not touch the state anymore
-        if (aDocument.getState() == CURATION_FINISHED
-                || aDocument.getState() == CURATION_IN_PROGRESS) {
+        if (CURATION_DOCUMENT_STATES.contains(aDocument.getState())) {
             return;
         }
 
-        // Count all data owners towards completion - including former annotators - but exclude the
-        // curation/initial pseudo users.
-        var annotationDocuments = documentService.listAllAnnotationDocuments(aDocument).stream() //
-                .filter(annDoc -> !CURATION_SET.equals(annDoc.getAnnotationSet())) //
-                .filter(annDoc -> !INITIAL_SET.equals(annDoc.getAnnotationSet())) //
-                .toList();
+        var annotationDocuments = listAnnotatorDocuments(aDocument);
         var finishedCount = annotationDocuments.stream() //
                 .filter(annDoc -> annDoc.getState() == AnnotationDocumentState.FINISHED) //
                 .count();
@@ -340,7 +346,7 @@ public class DynamicWorkloadExtensionImpl
                 .count();
 
         // If enough documents are finished, mark as finished
-        if (finishedCount >= aRequiredAnnotatorCount) {
+        if (DynamicCurationReadiness.isReadyForCuration(finishedCount, aRequiredAnnotatorCount)) {
             documentService.setSourceDocumentState(aDocument, ANNOTATION_FINISHED);
         }
         // ... or if nobody has started yet, mark as new
@@ -350,5 +356,56 @@ public class DynamicWorkloadExtensionImpl
         else {
             documentService.setSourceDocumentState(aDocument, ANNOTATION_IN_PROGRESS);
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isReadyForCuration(SourceDocument aDocument)
+    {
+        return getCurationReadinessWarning(aDocument).isEmpty();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<CurationReadinessWarning> getCurationReadinessWarning(SourceDocument aDocument)
+    {
+        var requiredAnnotatorCount = requiredAnnotatorCount(aDocument.getProject());
+        var finishedCount = countAnnotatorsThatFinished(aDocument);
+
+        if (DynamicCurationReadiness.isReadyForCuration(finishedCount, requiredAnnotatorCount)) {
+            return Optional.empty();
+        }
+
+        return Optional.of(DynamicCurationReadiness.warning(finishedCount, requiredAnnotatorCount));
+    }
+
+    private int requiredAnnotatorCount(Project aProject)
+    {
+        return readTraits(
+                workloadManagementService.loadOrCreateWorkloadManagerConfiguration(aProject))
+                        .getDefaultNumberOfAnnotations();
+    }
+
+    /**
+     * @return the annotation documents that count towards completion of the given document. These
+     *         are the documents of all data owners - including former annotators - but excluding
+     *         the curation/initial pseudo users.
+     */
+    private List<AnnotationDocument> listAnnotatorDocuments(SourceDocument aDocument)
+    {
+        return documentService.listAllAnnotationDocuments(aDocument).stream() //
+                .filter(annDoc -> !CURATION_SET.equals(annDoc.getAnnotationSet())) //
+                .filter(annDoc -> !INITIAL_SET.equals(annDoc.getAnnotationSet())) //
+                .toList();
+    }
+
+    /**
+     * @return the number of annotators that marked the document as finished.
+     */
+    private long countAnnotatorsThatFinished(SourceDocument aDocument)
+    {
+        return listAnnotatorDocuments(aDocument).stream() //
+                .filter(annDoc -> annDoc.getState() == AnnotationDocumentState.FINISHED) //
+                .count();
     }
 }

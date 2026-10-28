@@ -32,7 +32,9 @@ import org.apache.wicket.request.Url;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
+import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
 import de.tudarmstadt.ukp.inception.diam.editor.DiamJavaScriptReference;
 import de.tudarmstadt.ukp.inception.diam.model.compactv2.CompactSerializerV2Impl;
@@ -51,17 +53,25 @@ public class DiamAnnotationBrowser
     private @SpringBean ServletContext servletContext;
     private @SpringBean PreferencesService userPrefService;
     private @SpringBean AnnotationEditorExtensionRegistry extensionRegistry;
+    private @SpringBean UserDao userService;
 
     private final String userPreferencesKey;
     private final ContextMenu contextMenu;
 
     private DiamAjaxBehavior diamBehavior;
 
-    public DiamAnnotationBrowser(String aId, String aUserPreferencesKey, ContextMenu aContextMenu)
+    private final DocumentEditorManager manager;
+
+    public DiamAnnotationBrowser(String aId, String aUserPreferencesKey, ContextMenu aContextMenu,
+            DocumentEditorManager aManager)
     {
         super(aId);
+
+        manager = aManager;
         userPreferencesKey = aUserPreferencesKey;
         contextMenu = aContextMenu;
+
+        setOutputMarkupPlaceholderTag(true);
     }
 
     @Override
@@ -78,16 +88,25 @@ public class DiamAnnotationBrowser
     {
         super.onConfigure();
 
-        var state = findParent(AnnotationPageBase.class).getModelObject();
+        var maybeState = manager.getActiveEditor().map(DiamContext::getAnnotatorState);
 
-        if (state.getDocument() == null) {
+        var sessionOwner = userService.getCurrentUsername();
+
+        if (maybeState.isEmpty() || maybeState.get().getDocument() == null
+                || sessionOwner == null) {
             setDefaultModel(null);
+            setVisible(false);
             return;
         }
+
+        setVisible(true);
+
+        var state = maybeState.get();
 
         var viewport = ViewportDefinition.builder() //
                 .withDocument(state.getDocument()) //
                 .withDataOwner(state.getUser().getUsername()) //
+                .withSessionOwner(sessionOwner) //
                 .withFormat(CompactSerializerV2Impl.ID) //
                 .build();
 
@@ -117,7 +136,7 @@ public class DiamAnnotationBrowser
 
     protected DiamAjaxBehavior createDiamBehavior()
     {
-        return new DiamAjaxBehavior(findParent(AnnotationPageBase.class), contextMenu);
+        return new DiamAjaxBehavior(() -> manager.getActiveEditor().orElse(null), contextMenu);
     }
 
     @Override

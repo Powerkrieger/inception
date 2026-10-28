@@ -58,17 +58,18 @@ import de.tudarmstadt.ukp.inception.annotation.feature.misc.UimaPrimitiveFeature
 import de.tudarmstadt.ukp.inception.annotation.feature.string.StringFeatureSupportProperties;
 import de.tudarmstadt.ukp.inception.annotation.feature.string.StringFeatureSupportPropertiesImpl;
 import de.tudarmstadt.ukp.inception.annotation.type.StringSuggestion;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.FeatureState;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.SuggestionState;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VLazyDetail;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VLazyDetailGroup;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.IllegalFeatureValueException;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditor;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureType;
+import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureUtil;
 
 /**
  * <p>
@@ -191,6 +192,8 @@ public class MultiValueStringFeatureSupport
             schemaService.createMissingTag(aFeature, value);
         }
 
+        var feature = FeatureUtil.getMandatoryFeature(fs, aFeature);
+
         // Create a new array if size differs otherwise re-use existing one
         var array = FSUtil.getFeature(fs, aFeature.getName(), StringArrayFS.class);
         if (array == null || (array.size() != values.size())) {
@@ -200,7 +203,7 @@ public class MultiValueStringFeatureSupport
         // Fill in links
         array.copyFromArray(values.toArray(new String[values.size()]), 0, 0, values.size());
 
-        fs.setFeatureValue(fs.getType().getFeatureByBaseName(aFeature.getName()), array);
+        fs.setFeatureValue(feature, array);
     }
 
     @Override
@@ -221,7 +224,7 @@ public class MultiValueStringFeatureSupport
             schemaService.createMissingTag(aFeature, value);
         }
 
-        var feature = fs.getType().getFeatureByBaseName(aFeature.getName());
+        var feature = FeatureUtil.getMandatoryFeature(fs, aFeature);
         var oldValues = FSUtil.getFeature(fs, aFeature.getName(), StringArrayFS.class);
 
         var mergedValues = new LinkedHashSet<String>();
@@ -355,9 +358,7 @@ public class MultiValueStringFeatureSupport
     @Override
     public List<String> renderFeatureValues(AnnotationFeature aFeature, FeatureStructure aFs)
     {
-        var labelFeature = aFs.getType().getFeatureByBaseName(aFeature.getName());
-
-        if (labelFeature == null) {
+        if (FeatureUtil.getFeature(aFs, aFeature).isEmpty()) {
             return emptyList();
         }
 
@@ -398,7 +399,7 @@ public class MultiValueStringFeatureSupport
     {
         Object value;
 
-        var f = aFS.getType().getFeatureByBaseName(aFeature.getName());
+        var f = FeatureUtil.getFeature(aFS, aFeature).orElse(null);
 
         if (f == null) {
             value = null;

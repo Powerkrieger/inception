@@ -23,12 +23,12 @@ TS_MODULES="
 ./inception-js-api/src/main/ts
 ./inception-diam/src/main/ts
 ./inception-io-tei/src/main/ts
+./inception-io-html/src/main/ts
 ./inception-io-xml/src/main/ts
 ./inception-brat-editor/src/main/ts
 ./inception-diam-editor/src/main/ts
 ./inception-external-editor/src/main/ts
 ./inception-html-apache-annotator-editor/src/main/ts
-./inception-html-recogito-editor/src/main/ts
 ./inception-pdf-editor2/src/main/ts
 ./inception-project-export/src/main/ts
 ./inception-recommendation/src/main/ts
@@ -37,7 +37,7 @@ TS_MODULES="
 ./inception-ui-search/src/main/ts
 ./inception-ui-scheduling/src/main/ts
 ./inception-layer-docmetadata/src/main/ts
-./inception-assistant/src/main/ts
+./inception-assistant-ui/src/main/ts
 ./inception-workload/src/main/ts
 "
 
