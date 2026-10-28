@@ -47,7 +47,7 @@ import de.tudarmstadt.ukp.inception.schema.api.adapter.TypeAdapter;
 class CasMergeRelation
 {
     static CasMergeOperationResult mergeRelationAnnotation(CasMergeContext aContext,
-            SourceDocument aDocument, String aDataOwner, AnnotationLayer aAnnotationLayer,
+            SourceDocument aDocument, String aTargetDataOwner, AnnotationLayer aAnnotationLayer,
             CAS aTargetCas, AnnotationFS aSourceFs, boolean aAllowStacking)
         throws AnnotationException
     {
@@ -122,16 +122,17 @@ class CasMergeRelation
                     .toList();
         }
         if (existingAnnos.isEmpty() || aAllowStacking) {
-            var mergedRelation = relationAdapter.add(aDocument, aDataOwner, originFs, targetFs,
-                    aTargetCas);
+            var mergedRelation = relationAdapter.add(aDocument, aTargetDataOwner, originFs,
+                    targetFs, aTargetCas);
             try {
-                copyFeatures(aContext, aDocument, aDataOwner, relationAdapter, mergedRelation,
+                copyFeatures(aContext, aDocument, aTargetDataOwner, relationAdapter, mergedRelation,
                         aSourceFs);
             }
             catch (AnnotationException e) {
                 // If there was an error while setting the features, then we skip the entire
                 // annotation
-                relationAdapter.delete(aDocument, aDataOwner, aTargetCas, VID.of(mergedRelation));
+                relationAdapter.delete(aDocument, aTargetDataOwner, aTargetCas,
+                        VID.of(mergedRelation));
                 throw e;
             }
             return new CasMergeOperationResult(CREATED, getAddr(mergedRelation));
@@ -146,7 +147,7 @@ class CasMergeRelation
         }
         else {
             var mergeTargetFS = existingAnnos.get(0);
-            copyFeatures(aContext, aDocument, aDataOwner, relationAdapter, mergeTargetFS,
+            copyFeatures(aContext, aDocument, aTargetDataOwner, relationAdapter, mergeTargetFS,
                     aSourceFs);
             return new CasMergeOperationResult(UPDATED, getAddr(mergeTargetFS));
         }
