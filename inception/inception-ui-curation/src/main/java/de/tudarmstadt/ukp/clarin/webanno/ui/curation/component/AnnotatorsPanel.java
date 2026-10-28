@@ -18,6 +18,7 @@
 package de.tudarmstadt.ukp.clarin.webanno.ui.curation.component;
 
 import static de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.CasDiff.doDiff;
+import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet.CURATION_SET;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_FINISHED;
 import static de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.model.AnnotationState.ACCEPTED_BY_CURATOR;
 import static de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.model.AnnotationState.ANNOTATORS_AGREE;
@@ -28,6 +29,7 @@ import static de.tudarmstadt.ukp.inception.rendering.selection.FocusPosition.CEN
 import static de.tudarmstadt.ukp.inception.support.WebAnnoConst.CURATION_USER;
 import static java.lang.String.format;
 import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
 import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.uima.fit.util.CasUtil.select;
 
@@ -44,6 +46,7 @@ import org.apache.uima.UIMAException;
 import org.apache.uima.cas.CAS;
 import org.apache.uima.cas.text.AnnotationFS;
 import org.apache.wicket.ajax.AjaxRequestTarget;
+import org.apache.wicket.event.Broadcast;
 import org.apache.wicket.feedback.IFeedback;
 import org.apache.wicket.markup.html.list.ListItem;
 import org.apache.wicket.markup.html.list.ListView;
@@ -57,17 +60,19 @@ import org.wicketstuff.jquery.ui.widget.menu.IMenuItem;
 
 import de.tudarmstadt.ukp.clarin.webanno.brat.schema.BratSchemaGenerator;
 import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.ConfigurationSet;
-import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
+import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
+import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.detail.ShowAnnotationReadOnlyEvent;
 import de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.model.AnnotationState;
 import de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.model.AnnotatorSegmentState;
 import de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.render.AnnotationStateColoringStrategy;
 import de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.render.CurationRenderer;
 import de.tudarmstadt.ukp.inception.annotation.events.BulkAnnotationEvent;
+import de.tudarmstadt.ukp.inception.bootstrap.BootstrapModalDialog;
 import de.tudarmstadt.ukp.inception.annotation.layer.chain.api.ChainLayerSupport;
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationLayerSupport;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanLayerSupport;
@@ -83,7 +88,6 @@ import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.TypeAdapter;
 import de.tudarmstadt.ukp.inception.schema.api.config.AnnotationSchemaProperties;
 import de.tudarmstadt.ukp.inception.schema.api.feature.TypeUtil;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaMenuItem;
@@ -91,6 +95,7 @@ import de.tudarmstadt.ukp.inception.support.spring.ApplicationEventPublisherHold
 import de.tudarmstadt.ukp.inception.support.uima.ICasUtil;
 import de.tudarmstadt.ukp.inception.support.wicket.AjaxComponentRespondListener;
 import de.tudarmstadt.ukp.inception.support.wicket.ContextMenu;
+import de.tudarmstadt.ukp.inception.ui.curation.page.CuratableDocumentPage;
 
 /**
  * Panel with the annotator's annotations.
@@ -105,6 +110,7 @@ public class AnnotatorsPanel
     private static final String PARAM_TYPE = "type";
     private static final String PARAM_ID = "id";
     private static final String PARAM_ACTION = "action";
+    private static final String PARAM_SHOW_DETAILS = "showDetails";
 
     private static final String ACTION_CONTEXT_MENU = "contextMenu";
     private static final String ACTION_SELECT_ARC_FOR_MERGE = "selectArcForMerge";
@@ -114,6 +120,7 @@ public class AnnotatorsPanel
 
     private final ListView<AnnotatorSegmentState> annotatorSegments;
     private final ContextMenu contextMenu;
+    private final BootstrapModalDialog mergeAllDialog;
 
     private @SpringBean DocumentService documentService;
     private @SpringBean CurationDocumentService curationDocumentService;
@@ -124,6 +131,9 @@ public class AnnotatorsPanel
     private @SpringBean BratSchemaGenerator bratSchemaGenerator;
     private @SpringBean AnnotationSchemaProperties annotationEditorProperties;
     private @SpringBean DiffAdapterRegistry diffAdapterRegistry;
+
+    private boolean selectAnnotationOnMerge = false;
+    private boolean showDetailsEnabled = false;
 
     public AnnotatorsPanel(String id, DocumentEditorManager aManager,
             IModel<List<AnnotatorSegmentState>> aModel)
@@ -136,6 +146,10 @@ public class AnnotatorsPanel
         contextMenu = new ContextMenu("contextMenu");
         add(contextMenu);
 
+        mergeAllDialog = new BootstrapModalDialog("mergeAllDialog");
+        mergeAllDialog.trapFocus();
+        add(mergeAllDialog);
+
         annotatorSegments = new ListView<AnnotatorSegmentState>("annotatorSegments", aModel)
         {
             private static final long serialVersionUID = -5389636445364196097L;
@@ -145,7 +159,7 @@ public class AnnotatorsPanel
             {
                 final var annotatorSegment = aItem.getModelObject();
                 var curationVisualizer = new BratSuggestionVisualizer("annotationViewer", manager,
-                        new Model<>(annotatorSegment), aItem.getIndex())
+                        new Model<>(annotatorSegment))
                 {
                     private static final long serialVersionUID = -1205541428144070566L;
 
@@ -164,29 +178,56 @@ public class AnnotatorsPanel
     }
 
     /**
+     * @param aSelectAnnotationOnMerge
+     *            whether merging an annotation selects the merged annotation in the curator's
+     *            editor and thereby shows it in the annotation detail editor panel.
+     * @return the panel itself for chaining.
+     */
+    public AnnotatorsPanel setSelectAnnotationOnMerge(boolean aSelectAnnotationOnMerge)
+    {
+        selectAnnotationOnMerge = aSelectAnnotationOnMerge;
+        return this;
+    }
+
+    /**
+     * @param aShowDetailsEnabled
+     *            whether an annotator's annotation can be shown read-only in the annotation detail
+     *            editor panel, via Shift+click or "Show details" in the context menu. Without it,
+     *            Shift+click merges like a plain click.
+     * @return the panel itself for chaining.
+     */
+    public AnnotatorsPanel setShowDetailsEnabled(boolean aShowDetailsEnabled)
+    {
+        showDetailsEnabled = aShowDetailsEnabled;
+        return this;
+    }
+
+    /**
      * Method is called, if user has clicked on a span or an arc in the sentence panel. The span or
      * arc respectively is identified and copied to the merge CAS.
      */
     protected void onClientEvent(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment)
         throws UIMAException, IOException, AnnotationException
     {
-        if (isDocumentFinished(documentService, aSegment.getAnnotatorState())) {
+        var request = getRequest().getPostParameters();
+        var action = request.getParameterValue(PARAM_ACTION);
+
+        // Showing an annotation does not change anything, so it also works on a finished document
+        var documentFinished = isDocumentFinished(documentService, aSegment.getAnnotatorState());
+        var showDetails = showDetailsEnabled
+                && request.getParameterValue(PARAM_SHOW_DETAILS).toBoolean(false);
+        var contextMenuRequested = ACTION_CONTEXT_MENU.equals(action.toString());
+
+        if (documentFinished && !showDetails && !(contextMenuRequested && showDetailsEnabled)) {
             error("This document is already closed. Please ask the project manager to re-open it.");
             aTarget.addChildren(getPage(), IFeedback.class);
             return;
         }
 
-        var request = getRequest().getPostParameters();
-        var action = request.getParameterValue(PARAM_ACTION);
-
         if (!action.isEmpty()) {
             var type = removePrefix(request.getParameterValue(PARAM_TYPE).toString());
             var layer = schemaService.getLayer(TypeUtil.getLayerId(type));
             var sourceVid = VID.parse(request.getParameterValue(PARAM_ID).toString());
-
-            var targetCas = readEditorCas(aSegment.getAnnotatorState());
-            var sourceCas = readAnnotatorCas(aSegment);
-            var sourceState = aSegment.getAnnotatorState();
 
             if (ChainLayerSupport.TYPE.equals(layer.getType())) {
                 error("Coreference annotations are not supported in curation");
@@ -194,37 +235,53 @@ public class AnnotatorsPanel
                 return;
             }
 
-            if (ACTION_CONTEXT_MENU.equals(action.toString())) {
-                // No bulk actions supports for slots at the moment.
-                if (sourceVid.isSlotSet()) {
-                    return;
-                }
-
-                List<IMenuItem> items = contextMenu.getItemList();
-                items.clear();
-                items.add(new LambdaMenuItem(String.format("Merge all %s", layer.getUiName()),
-                        _target -> actionAcceptAll(_target, aSegment, layer)));
-
-                contextMenu.onOpen(aTarget);
+            if (showDetails) {
+                actionShowDetails(aTarget, aSegment, sourceVid);
                 return;
             }
 
+            if (contextMenuRequested) {
+                List<IMenuItem> items = contextMenu.getItemList();
+                items.clear();
+
+                if (showDetailsEnabled) {
+                    items.add(new LambdaMenuItem("Show details",
+                            _target -> actionShowDetails(_target, aSegment, sourceVid)));
+                }
+
+                // No bulk actions supports for slots at the moment.
+                if (!sourceVid.isSlotSet() && !documentFinished) {
+                    items.add(new LambdaMenuItem(format("Merge all %s", layer.getUiName()),
+                            _target -> actionConfirmAcceptAll(_target, aSegment, layer)));
+                }
+
+                if (!items.isEmpty()) {
+                    contextMenu.onOpen(aTarget);
+                }
+                return;
+            }
+
+            var targetCas = readEditorCas(aSegment.getAnnotatorState());
+            var sourceCas = readAnnotatorCas(aSegment);
+            var sourceState = aSegment.getAnnotatorState();
+
             // check if clicked on a span
             var casMerge = new CasMerge(schemaService, applicationEventPublisher.get());
+            CasMergeOperationResult result = null;
             if (ACTION_SELECT_SPAN_FOR_MERGE.equals(action.toString())) {
-                mergeSpan(casMerge, targetCas, sourceCas, sourceVid, sourceState.getDocument(),
-                        sourceState.getUser().getUsername(), layer);
+                result = mergeSpan(casMerge, targetCas, sourceCas, sourceVid,
+                        sourceState.getDocument(), sourceState.getUser().getUsername(), layer);
             }
             // check if clicked on an arc (relation or slot)
             else if (ACTION_SELECT_ARC_FOR_MERGE.equals(action.toString())) {
                 // this is a slot arc
                 if (sourceVid.isSlotSet()) {
-                    mergeSlot(casMerge, targetCas, sourceCas, sourceVid, sourceState.getDocument(),
-                            sourceState.getUser().getUsername(), layer);
+                    result = mergeSlot(casMerge, targetCas, sourceCas, sourceVid,
+                            sourceState.getDocument(), sourceState.getUser().getUsername(), layer);
                 }
                 // normal relation annotation arc is clicked
                 else {
-                    mergeRelation(casMerge, targetCas, sourceCas, sourceVid,
+                    result = mergeRelation(casMerge, targetCas, sourceCas, sourceVid,
                             sourceState.getDocument(), sourceState.getUser().getUsername(), layer);
                 }
             }
@@ -238,7 +295,47 @@ public class AnnotatorsPanel
                 sourceState.getPagingStrategy().moveToOffset(sourceState, targetCas,
                         sourceAnnotation.getBegin(), CENTERED);
             }
+
+            if (selectAnnotationOnMerge && result != null) {
+                selectMergedAnnotation(aTarget, sourceState.getDocument(), result);
+            }
         }
+    }
+
+    private void actionShowDetails(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment,
+            VID aSourceVid)
+    {
+        var vid = aSourceVid.isSlotSet() ? new VID(aSourceVid.getId()) : aSourceVid;
+        send(getPage(), Broadcast.BREADTH, new ShowAnnotationReadOnlyEvent(aTarget,
+                aSegment.getAnnotatorState().getDocument(), aSegment.getUser(), vid));
+    }
+
+    private void selectMergedAnnotation(AjaxRequestTarget aTarget, SourceDocument aDocument,
+            CasMergeOperationResult aResult)
+        throws IOException, AnnotationException
+    {
+        // The merge result must already have been written to the curation CAS because the
+        // curator's editor reads the CAS again to resolve the selection. For a slot, the target
+        // is the slot host.
+        var editor = manager.findEditorFor(aDocument, CURATION_SET);
+        if (editor.isPresent()) {
+            editor.get().actionSelect(aTarget, new VID(aResult.targetAddress()));
+        }
+    }
+
+    private void actionConfirmAcceptAll(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment,
+            AnnotationLayer aLayer)
+        throws IOException
+    {
+        var sourceCas = readAnnotatorCas(aSegment);
+        var count = schemaService.getAdapter(aLayer).getAnnotationType(sourceCas) //
+                .map(type -> (long) sourceCas.select(type).count()) //
+                .orElse(0L);
+
+        var content = new MergeAllConfirmationDialogPanel(BootstrapModalDialog.CONTENT_ID, count,
+                aLayer.getUiName(), aSegment.getUser().getUiName());
+        content.setConfirmAction(_target -> actionAcceptAll(_target, aSegment, aLayer));
+        mergeAllDialog.open(content, aTarget);
     }
 
     private void actionAcceptAll(AjaxRequestTarget aTarget, AnnotatorSegmentState aSegment,
@@ -305,7 +402,7 @@ public class AnnotatorsPanel
 
         int success = created + updated;
         if (success > 0) {
-            success(String.format("Annotations were changed: %d (%d created, %d updated)", success,
+            success(format("Annotations were changed: %d (%d created, %d updated)", success,
                     created, updated));
         }
         else {
@@ -332,41 +429,40 @@ public class AnnotatorsPanel
     }
 
     private CasMergeOperationResult mergeSpan(CasMerge aCasMerge, CAS aTargetCas, CAS aSourceCas,
-            VID aSourceVid, SourceDocument aSourceDocument, String aSourceUser,
+            VID aSourceVid, SourceDocument aSourceDocument, String aTargetDataOwner,
             AnnotationLayer aLayer)
         throws AnnotationException, UIMAException, IOException
     {
-        AnnotationFS sourceAnnotation = ICasUtil.selectAnnotationByAddr(aSourceCas,
-                aSourceVid.getId());
+        var sourceAnnotation = ICasUtil.selectAnnotationByAddr(aSourceCas, aSourceVid.getId());
 
-        return aCasMerge.mergeSpanAnnotation(aSourceDocument, aSourceUser, aLayer, aTargetCas,
+        return aCasMerge.mergeSpanAnnotation(aSourceDocument, aTargetDataOwner, aLayer, aTargetCas,
                 sourceAnnotation);
     }
 
-    private void mergeSlot(CasMerge aCasMerge, CAS aCas, CAS aSourceCas, VID aSourceVid,
-            SourceDocument aSourceDocument, String aSourceUser, AnnotationLayer aLayer)
+    private CasMergeOperationResult mergeSlot(CasMerge aCasMerge, CAS aCas, CAS aSourceCas,
+            VID aSourceVid, SourceDocument aSourceDocument, String aTargetDataOwner,
+            AnnotationLayer aLayer)
         throws AnnotationException, IOException
     {
-        AnnotationFS sourceAnnotation = ICasUtil.selectAnnotationByAddr(aSourceCas,
-                aSourceVid.getId());
+        var sourceAnnotation = ICasUtil.selectAnnotationByAddr(aSourceCas, aSourceVid.getId());
 
-        TypeAdapter adapter = schemaService.getAdapter(aLayer);
-        AnnotationFeature feature = adapter.listFeatures().stream().sequential()
-                .skip(aSourceVid.getAttribute()).findFirst().get();
+        var adapter = schemaService.getAdapter(aLayer);
+        var feature = adapter.listFeatures().stream().sequential().skip(aSourceVid.getAttribute())
+                .findFirst().get();
 
-        aCasMerge.mergeSlotFeature(aSourceDocument, aSourceUser, aLayer, aCas, sourceAnnotation,
-                feature.getName(), aSourceVid.getSlot());
+        return aCasMerge.mergeSlotFeature(aSourceDocument, aTargetDataOwner, aLayer, aCas,
+                sourceAnnotation, feature.getName(), aSourceVid.getSlot());
     }
 
     private CasMergeOperationResult mergeRelation(CasMerge aCasMerge, CAS aCas, CAS aSourceCas,
-            VID aSourceVid, SourceDocument aSourceDocument, String aSourceUser,
+            VID aSourceVid, SourceDocument aSourceDocument, String aTargetDataOwner,
             AnnotationLayer aLayer)
         throws AnnotationException, IOException
     {
         AnnotationFS sourceAnnotation = ICasUtil.selectAnnotationByAddr(aSourceCas,
                 aSourceVid.getId());
 
-        return aCasMerge.mergeRelationAnnotation(aSourceDocument, aSourceUser, aLayer, aCas,
+        return aCasMerge.mergeRelationAnnotation(aSourceDocument, aTargetDataOwner, aLayer, aCas,
                 sourceAnnotation);
     }
 
@@ -414,6 +510,14 @@ public class AnnotatorsPanel
         Map<String, Map<VID, AnnotationState>> annoStates = calculateAnnotationStates(aState,
                 casses);
 
+        // Number the annotators by their position among all curatable annotators, not among the
+        // shown ones, so they get the same anonymized names as in the curation sidebar and the
+        // merge dialog
+        var curatableUserNames = curationDocumentService.listCuratableUsers(aState.getDocument())
+                .stream() //
+                .map(User::getUsername) //
+                .toList();
+
         var segments = new ArrayList<AnnotatorSegmentState>();
         for (String username : casses.keySet().stream().sorted().collect(toList())) {
             if (username.equals(CURATION_USER)) {
@@ -430,6 +534,7 @@ public class AnnotatorsPanel
             // Create curation view for the current user
             var seg = new AnnotatorSegmentState();
             seg.setUser(userService.get(username));
+            seg.setPosition(curatableUserNames.indexOf(username));
             seg.setAnnotatorState(aState);
             renderSegment(aTarget, seg, cas, annotationStates);
             segments.add(seg);
@@ -449,12 +554,24 @@ public class AnnotatorsPanel
         casses.put(CURATION_USER, curationDocumentService.readCurationCas(aDocument));
 
         // The source CASes from the annotators are all ready read-only / shared
-        for (var user : curationDocumentService.listCuratableUsers(aDocument)) {
-            casses.put(user.getUsername(),
-                    documentService.readAnnotationCas(aDocument, AnnotationSet.forUser(user)));
+        for (var dataOwner : listDataOwners(aDocument)) {
+            casses.put(dataOwner.id(), documentService.readAnnotationCas(aDocument, dataOwner));
         }
 
         return casses;
+    }
+
+    private List<AnnotationSet> listDataOwners(SourceDocument aDocument)
+    {
+        // The page decides which annotators are curated from - e.g. only the ones the curator
+        // selected
+        if (getPage() instanceof CuratableDocumentPage page) {
+            return page.listDataOwnersToShow(aDocument);
+        }
+
+        return curationDocumentService.listCuratableUsers(aDocument).stream() //
+                .map(AnnotationSet::forUser) //
+                .toList();
     }
 
     private Map<String, Map<VID, AnnotationState>> calculateAnnotationStates(AnnotatorState aState,
@@ -503,23 +620,47 @@ public class AnnotatorsPanel
         }
 
         var casses = getCasses(aState.getDocument());
+
+        // The annotators to show may have changed since the segments were built - e.g. the curator
+        // changed the selection, possibly on another page sharing it - so rebuild the segments
+        // rather than keep panes of annotators no longer shown and miss the newly shown ones
+        var shownUsers = annotatorSegments.getModelObject().stream() //
+                .map(seg -> seg.getUser().getUsername()) //
+                .collect(toSet());
+        var usersToShow = casses.keySet().stream() //
+                .filter(username -> !CURATION_USER.equals(username)) //
+                .collect(toSet());
+        if (!shownUsers.equals(usersToShow)) {
+            init(aTarget, aState);
+            return;
+        }
+
         var annoStates = calculateAnnotationStates(aState, casses);
 
-        // get differing feature structures
-        annotatorSegments.visitChildren(BratSuggestionVisualizer.class, (v, visit) -> {
-            var vis = (BratSuggestionVisualizer) v;
-            var seg = vis.getModelObject();
-
+        // Re-render the segments themselves, not only those that already have a visualizer. Right
+        // after init() - e.g. a document opened and then moved to a focus in the same request -
+        // the list items have not been created yet, so visiting the visualizers would skip every
+        // segment and leave it with a view of the window as it was when the document was opened.
+        // The visualizers created later wrap these same segment objects.
+        for (var seg : annotatorSegments.getModelObject()) {
             var cas = casses.get(seg.getUser().getUsername());
 
             if (cas == null) {
                 // This may happen if a user has not yet finished document
-                return;
+                continue;
             }
 
             var annotationStates = annoStates.get(seg.getUser().getUsername());
             seg.setAnnotatorState(aState);
             renderSegment(aTarget, seg, cas, annotationStates);
+        }
+
+        annotatorSegments.visitChildren(BratSuggestionVisualizer.class, (v, visit) -> {
+            var vis = (BratSuggestionVisualizer) v;
+
+            if (!casses.containsKey(vis.getModelObject().getUser().getUsername())) {
+                return;
+            }
 
             if (isBlank(vis.getDocumentData())) {
                 return;

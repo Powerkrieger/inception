@@ -21,14 +21,6 @@
  */
 package de.tudarmstadt.ukp.inception.ui.curation.sidebar;
 
-import java.io.IOException;
-import java.util.Collection;
-
-import org.apache.uima.UIMAException;
-
-import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
-import de.tudarmstadt.ukp.inception.curation.merge.strategy.MergeStrategyFactory;
-import de.tudarmstadt.ukp.inception.curation.model.CurationWorkflow;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 
 public interface CurationSidebarService
@@ -48,8 +40,4 @@ public interface CurationSidebarService
     void setShowScore(String aUsername, Long aProjectId, boolean aValue);
 
     boolean isShowScore(String aUsername, Long aProjectId);
-
-    MergeStrategyFactory<?> merge(AnnotatorState aState, CurationWorkflow aWorkflow,
-            Collection<AnnotationSet> aDataOwners, boolean aClearTargetCas)
-        throws IOException, UIMAException;
 }

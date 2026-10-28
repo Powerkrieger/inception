@@ -17,7 +17,9 @@
  */
 package de.tudarmstadt.ukp.inception.curation.service;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,6 +28,7 @@ import org.apache.uima.UIMAException;
 import org.apache.uima.cas.CAS;
 
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
+import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.inception.curation.merge.strategy.MergeStrategy;
 
@@ -49,7 +52,8 @@ public interface CurationEditingService
      * @throws DocumentNotCuratableException
      *             if the document cannot be opened for curation at all.
      * @throws CurationNotPossibleException
-     *             if the requested merge mode cannot be applied to the document.
+     *             if the requested merge mode cannot be applied to the document, or if the curation
+     *             of the document is finished but its curation CAS is missing.
      * @throws UIMAException
      *             if there was an UIMA-level problem.
      * @throws IOException
@@ -61,11 +65,85 @@ public interface CurationEditingService
         throws CurationNotPossibleException, UIMAException, IOException;
 
     /**
+     * Like
+     * {@link #readOrCreateCurationCas(SourceDocument, String, List, MergeStrategy, CurationMergeMode)},
+     * but report the initial merge.
+     *
+     * @param aDocument
+     *            the document to curate.
+     * @param aCurationUser
+     *            the name of the user owning the curation CAS.
+     * @param aLayers
+     *            the layers to merge.
+     * @param aMergeStrategy
+     *            the merge strategy to apply.
+     * @param aMergeMode
+     *            whether to load the existing curation CAS, fill it, or recreate it.
+     * @param aInitialMergeListener
+     *            called once the curation CAS has been created and the annotations of the
+     *            annotators have been merged into it - not when an existing curation CAS is merged
+     *            into, nor when the curation CAS is created without merging because the project
+     *            disabled the automatic merge.
+     * @return the curation CAS.
+     * @throws DocumentNotCuratableException
+     *             if the document cannot be opened for curation at all.
+     * @throws CurationNotPossibleException
+     *             if the requested merge mode cannot be applied to the document, or if the curation
+     *             of the document is finished but its curation CAS is missing.
+     * @throws UIMAException
+     *             if there was an UIMA-level problem.
+     * @throws IOException
+     *             if an I/O error occurs.
+     */
+    CAS readOrCreateCurationCas(SourceDocument aDocument, String aCurationUser,
+            List<AnnotationLayer> aLayers, MergeStrategy aMergeStrategy,
+            CurationMergeMode aMergeMode, Runnable aInitialMergeListener)
+        throws CurationNotPossibleException, UIMAException, IOException;
+
+    /**
+     * Like
+     * {@link #readOrCreateCurationCas(SourceDocument, String, List, MergeStrategy, CurationMergeMode)},
+     * but merge only from the given data owners rather than from all curatable annotators. Data
+     * owners that are not curatable are ignored. Whether the document is curatable at all is still
+     * decided on all curatable annotators.
+     *
+     * @param aDocument
+     *            the document to curate.
+     * @param aCurationUser
+     *            the name of the user owning the curation CAS.
+     * @param aLayers
+     *            the layers to merge.
+     * @param aMergeStrategy
+     *            the merge strategy to apply.
+     * @param aMergeMode
+     *            whether to load the existing curation CAS, fill it, or recreate it.
+     * @param aDataOwners
+     *            the data owners to merge from.
+     * @return the curation CAS.
+     * @throws DocumentNotCuratableException
+     *             if the document cannot be opened for curation at all.
+     * @throws CurationNotPossibleException
+     *             if the requested merge mode cannot be applied to the document, or if the curation
+     *             of the document is finished but its curation CAS is missing.
+     * @throws UIMAException
+     *             if there was an UIMA-level problem.
+     * @throws IOException
+     *             if an I/O error occurs.
+     */
+    CAS readOrCreateCurationCas(SourceDocument aDocument, String aCurationUser,
+            List<AnnotationLayer> aLayers, MergeStrategy aMergeStrategy,
+            CurationMergeMode aMergeMode, Collection<AnnotationSet> aDataOwners)
+        throws CurationNotPossibleException, UIMAException, IOException;
+
+    /**
      * Provide the curation CAS for the given document without touching the document state. This is
      * the read-only counterpart of
      * {@link #readOrCreateCurationCas(SourceDocument, String, List, MergeStrategy, CurationMergeMode)}
      * for callers that already know which CASes to merge from - e.g. when calculating the agreement
      * overview.
+     * <p>
+     * Never creates the curation CAS - that only happens when curation starts. With
+     * {@link CurationMergeMode#RECREATE}, the curation CAS is cleared and merged into.
      *
      * @param aDocument
      *            the document to curate.
@@ -73,9 +151,6 @@ public interface CurationEditingService
      *            the name of the user owning the curation CAS.
      * @param aCasses
      *            the CASes to merge from.
-     * @param aTemplateUser
-     *            the annotation document used as a template when the curation CAS has to be created
-     *            from scratch. May be {@code null} only if a curation CAS already exists.
      * @param aUpgrade
      *            whether to upgrade the curation CAS to the current type system.
      * @param aLayers
@@ -87,12 +162,14 @@ public interface CurationEditingService
      * @return the curation CAS.
      * @throws UIMAException
      *             if there was an UIMA-level problem.
+     * @throws FileNotFoundException
+     *             if there is no curation CAS.
      * @throws IOException
      *             if an I/O error occurs.
      */
     CAS readCurationCas(SourceDocument aDocument, String aCurationUser, Map<String, CAS> aCasses,
-            String aTemplateUser, boolean aUpgrade, List<AnnotationLayer> aLayers,
-            MergeStrategy aMergeStrategy, CurationMergeMode aMergeMode)
+            boolean aUpgrade, List<AnnotationLayer> aLayers, MergeStrategy aMergeStrategy,
+            CurationMergeMode aMergeMode)
         throws UIMAException, IOException;
 
     /**
