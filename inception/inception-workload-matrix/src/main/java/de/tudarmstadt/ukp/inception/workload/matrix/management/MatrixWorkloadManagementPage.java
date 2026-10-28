@@ -962,8 +962,7 @@ public class MatrixWorkloadManagementPage
             Collection<SourceDocument> aDocuments)
     {
         var documents = aDocuments.stream() //
-                .filter(doc -> doc.getState() == CURATION_IN_PROGRESS
-                        || doc.getState() == CURATION_FINISHED) //
+                .filter(doc -> CURATION_DOCUMENT_STATES.contains(doc.getState())) //
                 .toList();
 
         if (documents.isEmpty()) {
