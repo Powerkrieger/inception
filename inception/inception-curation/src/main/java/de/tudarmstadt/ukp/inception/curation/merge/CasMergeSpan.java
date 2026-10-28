@@ -56,7 +56,7 @@ class CasMergeSpan
     private static final Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
     static CasMergeOperationResult mergeSpanAnnotation(CasMergeContext aContext,
-            SourceDocument aDocument, String aDataOwner, AnnotationLayer aAnnotationLayer,
+            SourceDocument aDocument, String aTargetDataOwner, AnnotationLayer aAnnotationLayer,
             CAS aTargetCas, AnnotationFS aSourceFs, boolean aAllowStacking)
         throws AnnotationException
     {
@@ -106,13 +106,13 @@ class CasMergeSpan
             // Create the annotation via the adapter - this also takes care of attaching to an
             // annotation if necessary
             var mergedSpan = adapter.handle(CreateSpanAnnotationRequest.builder() //
-                    .withDocument(aDocument, aDataOwner, aTargetCas) //
+                    .withDocument(aDocument, aTargetDataOwner, aTargetCas) //
                     .withRange(aSourceFs.getBegin(), aSourceFs.getEnd()) //
                     .build());
 
             var mergedSpanAddr = -1;
             try {
-                copyFeatures(aContext, aDocument, aDataOwner, adapter, mergedSpan, aSourceFs);
+                copyFeatures(aContext, aDocument, aTargetDataOwner, adapter, mergedSpan, aSourceFs);
                 mergedSpanAddr = getAddr(mergedSpan);
                 if (fingerprint != null) {
                     aContext.claim(aSourceFs, fingerprint, mergedSpan);
@@ -121,7 +121,7 @@ class CasMergeSpan
             catch (AnnotationException e) {
                 // If there was an error while setting the features, then we skip the entire
                 // annotation
-                adapter.delete(aDocument, aDataOwner, aTargetCas, VID.of(mergedSpan));
+                adapter.delete(aDocument, aTargetDataOwner, aTargetCas, VID.of(mergedSpan));
                 throw e;
             }
 
@@ -141,7 +141,7 @@ class CasMergeSpan
         }
         else {
             var annoToUpdate = existingAnnos.get(0);
-            copyFeatures(aContext, aDocument, aDataOwner, adapter, annoToUpdate, aSourceFs);
+            copyFeatures(aContext, aDocument, aTargetDataOwner, adapter, annoToUpdate, aSourceFs);
             if (fingerprint != null) {
                 aContext.claim(aSourceFs, fingerprint, annoToUpdate);
                 if (aContext.isMergeAttachedRelations()) {

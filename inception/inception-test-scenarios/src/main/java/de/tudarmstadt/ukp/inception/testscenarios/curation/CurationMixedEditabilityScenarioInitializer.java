@@ -17,9 +17,14 @@
  */
 package de.tudarmstadt.ukp.inception.testscenarios.curation;
 
+import static de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasAccessMode.EXCLUSIVE_WRITE_ACCESS;
+import static de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasUpgradeMode.NO_CAS_UPGRADE;
+import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet.CURATION_SET;
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_FINISHED;
 import static java.util.Arrays.asList;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +36,8 @@ import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.project.api.ProjectInitializer;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
+import de.tudarmstadt.ukp.inception.testscenarios.accounts.ScenarioAccountService;
+import de.tudarmstadt.ukp.inception.testscenarios.config.InceptionTestScenariosAutoConfiguration;
 
 /**
  * Two curatable documents that differ in editability: the first stays in
@@ -42,6 +49,9 @@ import de.tudarmstadt.ukp.inception.project.api.ProjectService;
  * document being opened from one that answers about the document the page still holds - both give
  * the same answer when there is only ever one document. With two documents of differing
  * editability, opening the second right after the first makes the two implementations disagree.
+ * <p>
+ * <b>This class is exposed as a Spring Component via
+ * {@link InceptionTestScenariosAutoConfiguration#curationMixedEditabilityScenarioInitializer}.</b>
  */
 @Order(9000)
 public class CurationMixedEditabilityScenarioInitializer
@@ -51,9 +61,10 @@ public class CurationMixedEditabilityScenarioInitializer
     private static final String FINISHED_DOCUMENT = "curation-sample-finished.txt";
 
     public CurationMixedEditabilityScenarioInitializer(DocumentService aDocumentService,
-            ProjectService aProjectService, UserDao aUserService)
+            ProjectService aProjectService, UserDao aUserService,
+            ScenarioAccountService aScenarioAccountService)
     {
-        super(aDocumentService, aProjectService, aUserService);
+        super(aDocumentService, aProjectService, aUserService, aScenarioAccountService);
     }
 
     @Override
@@ -88,9 +99,18 @@ public class CurationMixedEditabilityScenarioInitializer
     }
 
     @Override
-    protected void finalizeDocument(SourceDocument aDocument, int aIndex)
+    protected void finalizeDocument(SourceDocument aDocument, int aIndex) throws IOException
     {
         if (FINISHED_DOCUMENT.equals(aDocument.getName())) {
+            // A finished curation has a curation CAS - without one, the document cannot be opened
+            try {
+                getDocumentService().readOrCreateAnnotationCas(aDocument, CURATION_SET,
+                        NO_CAS_UPGRADE, EXCLUSIVE_WRITE_ACCESS);
+            }
+            catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+
             // A curator may not edit a document whose curation is already finished, so this is the
             // document that must come back as not editable.
             getDocumentService().setSourceDocumentState(aDocument, CURATION_FINISHED);

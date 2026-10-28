@@ -30,6 +30,7 @@ import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATI
 import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.NEW;
 import static de.tudarmstadt.ukp.inception.support.WebAnnoConst.CURATION_USER;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
@@ -53,7 +54,6 @@ import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
-import de.tudarmstadt.ukp.inception.curation.config.CurationProperties;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
 
@@ -64,7 +64,6 @@ class DocumentAccessImplTest
     private @Mock ProjectService projectService;
     private @Mock UserDao userService;
     private @Mock DocumentService documentService;
-    private @Mock CurationProperties curationProperties;
     private @Mock Project project;
     private @Mock SourceDocument sourceDocument;
 
@@ -121,6 +120,57 @@ class DocumentAccessImplTest
                 any(AnnotationSet.class))).thenReturn(aDoc);
 
         assertThat(sut.canViewAnnotationDocument("alice", "2", 8L, "alice")).isFalse();
+    }
+
+    @Test
+    void assertCanView_manager_ownLockedDocument_granted()
+    {
+        when(projectService.listRoles(project, user)).thenReturn(List.of(MANAGER));
+        when(sourceDocument.getProject()).thenReturn(project);
+
+        // The document IS locked for her. Stub it explicitly rather than relying on the default
+        // "no annotation document" - otherwise this passes even if the role bypass is removed,
+        // because the IGNORE branch would never be reached.
+        lenient().when(documentService.existsAnnotationDocument(any(SourceDocument.class),
+                any(AnnotationSet.class))).thenReturn(true);
+        var annDoc = AnnotationDocument.builder() //
+                .withState(IGNORE) //
+                .build();
+        lenient().when(documentService.getAnnotationDocument(any(SourceDocument.class),
+                any(AnnotationSet.class))).thenReturn(annDoc);
+
+        // A manager may look at a document locked for herself - locking is her own act, and she
+        // has to be able to review the data to decide what to do with it.
+        assertThatNoException().isThrownBy(
+                () -> sut.assertCanViewAnnotationDocument(user, sourceDocument, "alice"));
+    }
+
+    @Test
+    void assertCanView_annotator_ownLockedDocument_throws()
+    {
+        when(projectService.listRoles(project, user)).thenReturn(List.of(ANNOTATOR));
+        when(sourceDocument.getProject()).thenReturn(project);
+        when(documentService.existsAnnotationDocument(any(SourceDocument.class),
+                any(AnnotationSet.class))).thenReturn(true);
+        var annDoc = AnnotationDocument.builder() //
+                .withState(IGNORE) //
+                .build();
+        when(documentService.getAnnotationDocument(any(SourceDocument.class),
+                any(AnnotationSet.class))).thenReturn(annDoc);
+
+        assertThatThrownBy(() -> sut.assertCanViewAnnotationDocument(user, sourceDocument, "alice"))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void assertCanView_annotator_foreignDocument_throws()
+    {
+        when(projectService.listRoles(project, user)).thenReturn(List.of(ANNOTATOR));
+        when(sourceDocument.getProject()).thenReturn(project);
+
+        assertThatThrownBy(
+                () -> sut.assertCanViewAnnotationDocument(user, sourceDocument, "someoneElse"))
+                        .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
@@ -225,45 +275,8 @@ class DocumentAccessImplTest
     }
 
     @Test
-    void canEdit_annotator_legacyStrategy_curationInProgress_allowed()
+    void canEdit_annotator_finishedAnnotationDocument_duringCurationFinished_denied()
     {
-        // Under the legacy curatable-documents strategy, curation may start while annotation is
-        // still in progress, so an annotator that has not started yet must not be locked out.
-        when(curationProperties.isLegacyCuratableDocumentsStrategy()).thenReturn(true);
-        when(projectService.listRoles(project, user)).thenReturn(List.of(ANNOTATOR));
-        when(sourceDocument.getProject()).thenReturn(project);
-        when(sourceDocument.getState()).thenReturn(CURATION_IN_PROGRESS);
-        when(documentService.existsAnnotationDocument(any(SourceDocument.class),
-                any(AnnotationSet.class))).thenReturn(false);
-
-        // should not throw
-        sut.assertCanEditAnnotationDocument(user, sourceDocument, user.getUsername());
-    }
-
-    @Test
-    void canEdit_annotator_legacyStrategy_curationFinished_allowed()
-    {
-        // Deliberately also applies to CURATION_FINISHED: under the legacy strategy, a single
-        // finished annotator is enough to start curation, so the curation states do not imply that
-        // annotation was ever completed. Once a document is in curation, the workload managers stop
-        // updating its state (see MatrixWorkloadExtensionImpl#isInCuration), so locking annotators
-        // out here would evict them from assigned work permanently rather than temporarily.
-        when(curationProperties.isLegacyCuratableDocumentsStrategy()).thenReturn(true);
-        when(projectService.listRoles(project, user)).thenReturn(List.of(ANNOTATOR));
-        when(sourceDocument.getProject()).thenReturn(project);
-        when(sourceDocument.getState()).thenReturn(CURATION_FINISHED);
-        when(documentService.existsAnnotationDocument(any(SourceDocument.class),
-                any(AnnotationSet.class))).thenReturn(false);
-
-        // should not throw
-        sut.assertCanEditAnnotationDocument(user, sourceDocument, user.getUsername());
-    }
-
-    @Test
-    void canEdit_annotator_legacyStrategy_finishedAnnotationDocument_denied()
-    {
-        // The annotator whose finished work enabled curation in the first place stays locked out.
-        when(curationProperties.isLegacyCuratableDocumentsStrategy()).thenReturn(true);
         when(projectService.listRoles(project, user)).thenReturn(List.of(ANNOTATOR));
         when(sourceDocument.getProject()).thenReturn(project);
         lenient().when(sourceDocument.getState()).thenReturn(CURATION_FINISHED);
@@ -283,10 +296,8 @@ class DocumentAccessImplTest
     }
 
     @Test
-    void canEdit_annotator_legacyStrategy_ignoredAnnotationDocument_denied()
+    void canEdit_annotator_ignoredAnnotationDocument_duringCurationInProgress_denied()
     {
-        // ... but a document that is locked for the annotator stays locked, regardless of strategy.
-        when(curationProperties.isLegacyCuratableDocumentsStrategy()).thenReturn(true);
         when(projectService.listRoles(project, user)).thenReturn(List.of(ANNOTATOR));
         when(sourceDocument.getProject()).thenReturn(project);
         lenient().when(sourceDocument.getState()).thenReturn(CURATION_IN_PROGRESS);

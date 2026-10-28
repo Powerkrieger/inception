@@ -29,14 +29,12 @@ import org.apache.wicket.markup.html.link.ResourceLink;
 import org.apache.wicket.markup.html.list.ListItem;
 import org.apache.wicket.markup.html.list.ListView;
 import org.apache.wicket.model.LoadableDetachableModel;
-import org.apache.wicket.request.resource.ResourceStreamResource;
 import org.apache.wicket.spring.injection.annot.SpringBean;
-import org.apache.wicket.util.resource.FileResourceStream;
 
-import de.tudarmstadt.ukp.clarin.webanno.model.Project;
-import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
+import de.tudarmstadt.ukp.inception.guidelines.GuidelineResource;
 import de.tudarmstadt.ukp.inception.guidelines.GuidelinesService;
+import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.SidebarContext;
 
 public class GuidelinesSidebar
     extends AnnotationSidebar_ImplBase
@@ -45,9 +43,9 @@ public class GuidelinesSidebar
 
     private @SpringBean GuidelinesService guidelinesService;
 
-    public GuidelinesSidebar(String aId, AnnotationPageBase2 aAnnotationPage)
+    public GuidelinesSidebar(String aId, SidebarContext aContext)
     {
-        super(aId, aAnnotationPage);
+        super(aId, aContext);
 
         var guidelines = LoadableDetachableModel.of(this::listGuidelines);
 
@@ -60,9 +58,9 @@ public class GuidelinesSidebar
             {
                 var name = aItem.getModelObject();
 
-                var stream = new FileResourceStream(
+                var resource = new GuidelineResource(
                         guidelinesService.getGuideline(getProject(), name));
-                var link = new ResourceLink<Void>("guideline", new ResourceStreamResource(stream));
+                var link = new ResourceLink<Void>("guideline", resource);
                 link.setPopupSettings(
                         new PopupSettings(RESIZABLE | SCROLLBARS).setHeight(500).setWidth(700));
                 link.add(new Label("guidelineName", name));
@@ -81,10 +79,5 @@ public class GuidelinesSidebar
         }
 
         return guidelinesService.listGuidelines(project);
-    }
-
-    private Project getProject()
-    {
-        return getModelObject().getProject();
     }
 }
