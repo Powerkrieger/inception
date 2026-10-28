@@ -18,13 +18,12 @@
 package de.tudarmstadt.ukp.inception.app.ui.externalsearch.sidebar;
 
 import static de.tudarmstadt.ukp.inception.app.ui.externalsearch.sidebar.ExternalSearchUserStateMetaData.CURRENT_ES_USER_STATE;
+import static de.tudarmstadt.ukp.inception.support.wicket.WicketUtil.wrapInTryCatch;
 import static org.apache.commons.lang3.StringUtils.defaultIfBlank;
 
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.wicket.ajax.AjaxRequestTarget;
@@ -52,19 +51,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wicketstuff.event.annotation.OnEvent;
 
-import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
 import de.tudarmstadt.ukp.clarin.webanno.api.export.DocumentImportExportService;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
-import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
 import de.tudarmstadt.ukp.inception.app.ui.externalsearch.ExternalResultDataProvider;
 import de.tudarmstadt.ukp.inception.app.ui.externalsearch.utils.DocumentImporter;
 import de.tudarmstadt.ukp.inception.app.ui.externalsearch.utils.HighlightLabel;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
-import de.tudarmstadt.ukp.inception.externalsearch.ExternalSearchHighlight;
 import de.tudarmstadt.ukp.inception.externalsearch.ExternalSearchResult;
 import de.tudarmstadt.ukp.inception.externalsearch.ExternalSearchService;
 import de.tudarmstadt.ukp.inception.externalsearch.HighlightUtils;
@@ -76,14 +71,15 @@ import de.tudarmstadt.ukp.inception.rendering.request.RenderRequest;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VDocument;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VMarker;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VRange;
+import de.tudarmstadt.ukp.inception.support.uima.Range;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VTextMarker;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.support.annotation.OffsetSpan;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxFormComponentUpdatingBehavior;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxSubmitLink;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaModelAdapter;
 import de.tudarmstadt.ukp.inception.support.spring.ApplicationEventPublisherHolder;
+import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.SidebarContext;
 
 public class ExternalSearchAnnotationSidebar
     extends AnnotationSidebar_ImplBase
@@ -112,26 +108,26 @@ public class ExternalSearchAnnotationSidebar
 
     private DocumentRepository currentRepository;
 
+    private WebMarkupContainer resultsScroller;
     private WebMarkupContainer dataTableContainer;
 
-    public ExternalSearchAnnotationSidebar(String aId, AnnotationActionHandler aActionHandler,
-            CasProvider aCasProvider, AnnotationPageBase2 aAnnotationPage)
+    public ExternalSearchAnnotationSidebar(String aId, SidebarContext aContext)
     {
-        super(aId, aActionHandler, aCasProvider, aAnnotationPage);
+        super(aId, aContext);
 
         // Attach search state to annotation page
         // This state is to maintain persistence of this sidebar so that when user moves to another
         // sidebar and comes back here, the state of this sidebar (search results) are preserved.
         searchStateModel = new CompoundPropertyModel<>(LambdaModelAdapter.of(
-                () -> aAnnotationPage.getMetaData(CURRENT_ES_USER_STATE),
-                searchState -> aAnnotationPage.setMetaData(CURRENT_ES_USER_STATE, searchState)));
+                () -> aContext.page().getMetaData(CURRENT_ES_USER_STATE),
+                searchState -> aContext.page().setMetaData(CURRENT_ES_USER_STATE, searchState)));
 
         // Set up the search state in the page if it is not already there
-        if (aAnnotationPage.getMetaData(CURRENT_ES_USER_STATE) == null) {
+        if (aContext.page().getMetaData(CURRENT_ES_USER_STATE) == null) {
             searchStateModel.setObject(new ExternalSearchUserState());
         }
 
-        project = getModel().getObject().getProject();
+        project = aContext.getProject();
         List<DocumentRepository> repositories = externalSearchService
                 .listDocumentRepositories(project);
 
@@ -176,12 +172,16 @@ public class ExternalSearchAnnotationSidebar
 
         if (searchState.getDataProvider() == null) {
             searchState.setDataProvider(new ExternalResultDataProvider(externalSearchService,
-                    userRepository.getCurrentUser()));
+                    userRepository.getSessionOwner()));
         }
+
+        resultsScroller = new WebMarkupContainer("resultsScroller");
+        resultsScroller.setOutputMarkupId(true);
+        mainContainer.add(resultsScroller);
 
         dataTableContainer = new WebMarkupContainer("dataTableContainer");
         dataTableContainer.setOutputMarkupId(true);
-        mainContainer.add(dataTableContainer);
+        resultsScroller.add(dataTableContainer);
 
         DataTable<ExternalSearchResult, String> resultTable = new DefaultDataTable<>("resultsTable",
                 columns, searchState.getDataProvider(), 8);
@@ -208,65 +208,46 @@ public class ExternalSearchAnnotationSidebar
     @OnEvent
     public void onRenderAnnotations(RenderAnnotationsEvent aEvent)
     {
-        // Only render our highlights into our own editor, not into other editors on the page (e.g.
-        // the reference-document viewer or curation panes) even if they show the same document
-        // (#6146).
-        if (aEvent.getRequest().getState() != getAnnotationPage().getModelObject()) {
+        var renderedState = aEvent.getRequest().getState();
+        if (renderedState == null || renderedState.getDocument() == null) {
             return;
         }
 
-        ExternalSearchUserState searchState = searchStateModel.getObject();
-
-        // highlight keywords if a document is selected from result list
-        // and it is the current document opened
-        if (searchState.getSelectedResult() != null
-                && (searchState.getSelectedResult().getDocumentId()
-                        .equals(getAnnotationPage().getModelObject().getDocument().getName()))) {
-            highlightKeywords(aEvent.getRequest(), aEvent.getVDocument());
+        var selectedResult = searchStateModel.getObject().getSelectedResult();
+        if (selectedResult == null) {
+            return;
         }
-        else {
-            // a document was opened not by selecting from the result list
-            searchState.setSelectedResult(null);
+
+        if (selectedResult.getDocumentId().equals(renderedState.getDocument().getName())) {
+            highlightKeywords(aEvent.getRequest(), aEvent.getVDocument());
         }
     }
 
-    // TODO: Maybe we should highlight all occurrences of the query term in the texst and
+    // TODO: Maybe we should highlight all occurrences of the query term in the texts and
     // not only the ones returned in the highlights?
     private void highlightKeywords(RenderRequest aRequest, VDocument aVDocument)
     {
-        ExternalSearchUserState searchState = searchStateModel.getObject();
-        try {
-            String documentText = getCasProvider().get().getDocumentText();
+        var searchState = searchStateModel.getObject();
 
-            for (ExternalSearchHighlight highlight : searchState.getSelectedResult()
-                    .getHighlights()) {
+        var documentText = aRequest.getCas().getDocumentText();
 
-                Optional<ExternalSearchHighlight> maybeExHighlight = HighlightUtils
-                        .parseHighlight(highlight.getHighlight(), documentText);
-                if (!maybeExHighlight.isPresent()) {
-                    continue;
-                }
+        for (var highlight : searchState.getSelectedResult().getHighlights()) {
+            var maybeExHighlight = HighlightUtils.parseHighlight(highlight.getHighlight(),
+                    documentText);
+            if (!maybeExHighlight.isPresent()) {
+                continue;
+            }
 
-                var exHighlight = maybeExHighlight.get();
+            // Highlight the keywords in the annotator indicated by the offsets
+            // if they are within the current window.
+            for (var offset : maybeExHighlight.get().getOffsets()) {
+                VRange.clippedRange(aVDocument, offset) //
+                        .ifPresent(r -> aVDocument.add(new VTextMarker(VMarker.MATCH_FOCUS, r)));
 
-                // Highlight the keywords in the annotator indicated by the offsets
-                // if they are within the current window.
-                for (OffsetSpan offset : exHighlight.getOffsets()) {
-                    Optional<VRange> range = VRange.clippedRange(aVDocument, offset);
-
-                    range.ifPresent(r -> aVDocument.add(new VTextMarker(VMarker.MATCH_FOCUS, r)));
-
-                    if (offset.getBegin() > aRequest.getWindowEndOffset()) {
-                        break;
-                    }
+                if (offset.getBegin() > aRequest.getWindowEndOffset()) {
+                    break;
                 }
             }
-        }
-        catch (IOException e) {
-            LOG.error("Unable to load document {}: {}",
-                    searchState.getSelectedResult().getDocumentId(), e.getMessage(), e);
-            error("Unable to load document " + searchState.getSelectedResult().getDocumentId()
-                    + ": " + ExceptionUtils.getRootCauseMessage(e));
         }
     }
 
@@ -286,8 +267,12 @@ public class ExternalSearchAnnotationSidebar
                 info("Document already present: " + aResult.getDocumentId());
             }
 
-            getAnnotationPage().actionShowDocument(aTarget,
-                    documentService.getSourceDocument(project, aResult.getDocumentId()));
+            // The rows decide between "import" and "open" when they are created, so re-render them
+            aTarget.add(dataTableContainer);
+
+            actionJumpToDocument(aTarget,
+                    documentService.getSourceDocument(project, aResult.getDocumentId()),
+                    getContext().getDataOwner(), Range.UNDEFINED);
         }
         catch (Exception e) {
             LOG.error("Unable to load document {}: {}", aResult.getDocumentId(), e.getMessage(), e);
@@ -300,8 +285,9 @@ public class ExternalSearchAnnotationSidebar
     {
         try {
             searchStateModel.getObject().setSelectedResult(aResult);
-            getAnnotationPage().actionShowDocument(aTarget,
-                    documentService.getSourceDocument(project, aResult.getDocumentId()));
+            actionJumpToDocument(aTarget,
+                    documentService.getSourceDocument(project, aResult.getDocumentId()),
+                    getContext().getDataOwner(), Range.UNDEFINED);
         }
         catch (Exception e) {
             LOG.error("Unable to load document {}: {}", aResult.getDocumentId(), e.getMessage(), e);
@@ -376,10 +362,12 @@ public class ExternalSearchAnnotationSidebar
         }
 
         aTarget.add(dataTableContainer);
+        aTarget.appendJavaScript(wrapInTryCatch(
+                "document.getElementById('" + resultsScroller.getMarkupId() + "').scrollTop = 0;"));
 
         applicationEventPublisher.get()
                 .publishEvent(new ExternalSearchQueryEvent(this, currentRepository.getProject(),
-                        userRepository.getCurrentUsername(), searchState.getQuery()));
+                        userRepository.getSessionOwnerName(), searchState.getQuery()));
     }
 
     public class ResultRowView

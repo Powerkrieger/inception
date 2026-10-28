@@ -49,10 +49,10 @@ import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.inception.annotation.events.FeatureValueUpdatedEvent;
 import de.tudarmstadt.ukp.inception.annotation.type.ResumptionLocation;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.FeatureState;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.FeatureValueUpdateContext;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.TypeAdapter;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureSupport;
@@ -264,10 +264,10 @@ public abstract class TypeAdapter_ImplBase
 
     @Override
     public final FeatureValueUpdateContext updateFeatureValues(SourceDocument aDocument,
-            String aUsername, CAS aCas, int aAddress)
+            String aDataOwner, CAS aCas, int aAddress)
     {
         var fs = selectFsByAddr(aCas, aAddress);
-        return new FeatureValueUpdateContextImpl(aDocument, aUsername, fs);
+        return new FeatureValueUpdateContextImpl(aDocument, aDataOwner, fs);
     }
 
     private void publishFeatureValueUpdated(SourceDocument aDocument, String aUsername,

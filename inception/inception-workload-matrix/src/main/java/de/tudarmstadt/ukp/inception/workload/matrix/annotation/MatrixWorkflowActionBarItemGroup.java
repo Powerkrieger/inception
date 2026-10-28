@@ -22,17 +22,11 @@ import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState.IN
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentStateChangeFlag.EXPLICIT_ANNOTATOR_USER_ACTION;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.CURATOR;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.MANAGER;
-import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_FINISHED;
-import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_IN_PROGRESS;
-import static de.tudarmstadt.ukp.inception.support.WebAnnoConst.CURATION_USER;
+import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATION_DOCUMENT_STATES;
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.enabledWhen;
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visibleWhen;
-import static wicket.contrib.input.events.EventType.click;
-import static wicket.contrib.input.events.key.KeyType.Ctrl;
-import static wicket.contrib.input.events.key.KeyType.End;
 
 import java.io.IOException;
-import java.util.Set;
 
 import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.Component;
@@ -49,7 +43,9 @@ import org.apache.wicket.model.ResourceModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.behavior.CssClassNameModifier;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarContext;
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.DocumentStateHandler;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.finish.FinishDocumentDialogContent;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.finish.FinishDocumentDialogModel;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.exception.ValidationException;
@@ -57,24 +53,23 @@ import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentStateChangeFlag;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
-import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.inception.bootstrap.BootstrapModalDialog;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.preferences.PreferencesService;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditor;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
-import de.tudarmstadt.ukp.inception.support.wicket.input.InputBehavior;
 import de.tudarmstadt.ukp.inception.workload.matrix.MatrixWorkloadExtension;
 import de.tudarmstadt.ukp.inception.workload.matrix.trait.MatrixWorkloadTraits;
 import de.tudarmstadt.ukp.inception.workload.model.WorkloadManagementService;
 import de.tudarmstadt.ukp.inception.workload.ui.ResetAnnotationDocumentConfirmationDialogContentPanel;
-import wicket.contrib.input.events.key.KeyType;
 
 public class MatrixWorkflowActionBarItemGroup
     extends Panel
+    implements DocumentStateHandler
 {
     private static final long serialVersionUID = 4139817495914347777L;
 
@@ -86,19 +81,21 @@ public class MatrixWorkflowActionBarItemGroup
     private @SpringBean PreferencesService preferencesService;
 
     private final AnnotationPageBase page;
+    private final DocumentEditor editorContext;
     private final ModalDialog dialog;
     private final IModel<MatrixWorkloadTraits> traits;
     private final LoadableDetachableModel<Boolean> reopenableByUser;
 
-    public MatrixWorkflowActionBarItemGroup(String aId, AnnotationPageBase aPage)
+    public MatrixWorkflowActionBarItemGroup(String aId, ActionBarContext aContext)
     {
         super(aId);
 
-        page = aPage;
+        page = aContext.page();
+        editorContext = aContext.editor();
 
-        traits = LoadableDetachableModel.of(() -> matrixWorkloadExtension
-                .readTraits(workloadManagementService.loadOrCreateWorkloadManagerConfiguration(
-                        page.getModelObject().getProject())));
+        traits = LoadableDetachableModel
+                .of(() -> matrixWorkloadExtension.readTraits(workloadManagementService
+                        .loadOrCreateWorkloadManagerConfiguration(editorContext.getProject())));
 
         dialog = new BootstrapModalDialog("dialog");
         add(dialog);
@@ -121,7 +118,7 @@ public class MatrixWorkflowActionBarItemGroup
     private Component createResetDocumentLink(String aString)
     {
         var link = new LambdaAjaxLink(aString, this::actionRequestResetDocumentConfirmation);
-        link.add(enabledWhen(() -> page.isEditable()));
+        link.add(enabledWhen(this::isHostEditorEditable));
         link.add(visibleWhen(
                 traits.map(MatrixWorkloadTraits::isDocumentResetAllowed).orElse(false)));
         return link;
@@ -131,8 +128,7 @@ public class MatrixWorkflowActionBarItemGroup
     {
         var link = new LambdaAjaxLink(aId, this::actionFinishOrReopen);
         link.setOutputMarkupId(true);
-        link.add(enabledWhen(() -> page.isEditable() || reopenableByUser.getObject()));
-        link.add(new InputBehavior(new KeyType[] { Ctrl, End }, click));
+        link.add(enabledWhen(() -> isHostEditorEditable() || reopenableByUser.getObject()));
 
         var stateLabel = new Label("state");
         stateLabel.add(new CssClassNameModifier(LoadableDetachableModel.of(this::getStateClass)));
@@ -157,10 +153,27 @@ public class MatrixWorkflowActionBarItemGroup
         }
     }
 
+    @Override
+    public void actionFinishOrReopenDocument(AjaxRequestTarget aTarget)
+        throws IOException, AnnotationException
+    {
+        if (editorContext.getViewState().getDocument() == null
+                || !(isHostEditorEditable() || reopenableByUser.getObject())) {
+            return;
+        }
+
+        actionFinishOrReopen(aTarget);
+    }
+
+    private boolean isHostEditorEditable()
+    {
+        var context = editorContext;
+        return context != null && context.getActionHandler().isEditable();
+    }
+
     private boolean isReopenableByUser()
     {
-        var state = page.getModelObject();
-        var srcDoc = state.getDocument();
+        var srcDoc = editorContext.getViewState().getDocument();
 
         if (srcDoc == null) {
             return false;
@@ -168,7 +181,7 @@ public class MatrixWorkflowActionBarItemGroup
 
         // Curators can re-open documents anyway via the monitoring page, so we can always allow
         // the re-open documents here as well
-        if (projectService.hasRole(userRepository.getCurrentUsername(), state.getProject(),
+        if (projectService.hasRole(userRepository.getCurrentUsername(), editorContext.getProject(),
                 CURATOR)) {
             return true;
         }
@@ -179,7 +192,7 @@ public class MatrixWorkflowActionBarItemGroup
 
         // Check latest state of the document
         srcDoc = documentService.getSourceDocument(srcDoc.getProject().getId(), srcDoc.getId());
-        if (Set.of(CURATION_IN_PROGRESS, CURATION_FINISHED).contains(srcDoc.getState())) {
+        if (CURATION_DOCUMENT_STATES.contains(srcDoc.getState())) {
             // Annotators may not re-open documents once curation has started
             return false;
         }
@@ -194,17 +207,7 @@ public class MatrixWorkflowActionBarItemGroup
 
     public ResourceModel getStateTooltip()
     {
-        var state = page.getModelObject();
-
-        // Curation sidebar: when writing to the curation document, we need to update the document
-        if (CURATION_USER.equals(state.getUser().getUsername())) {
-            if (state.getDocument().getState() == SourceDocumentState.CURATION_FINISHED) {
-                return new ResourceModel("stateToggle.curationFinished");
-            }
-            else {
-                return new ResourceModel("stateToggle.curationInProgress");
-            }
-        }
+        var state = editorContext.getViewState();
 
         if (documentService.isAnnotationFinished(state.getDocument(), state.getUser())) {
             return new ResourceModel("stateToggle.annotationFinished");
@@ -214,29 +217,22 @@ public class MatrixWorkflowActionBarItemGroup
         }
     }
 
+    /**
+     * The button shows the state that clicking it leads to (the tooltip says the current one), so
+     * the symbols are the other way round than in status displays such as the monitoring page. The
+     * curator's button on the curation pages follows the same convention.
+     */
     public String getStateClass()
     {
-        var state = page.getModelObject();
-
-        // Curation sidebar: when writing to the curation document, we need to update the document
-        if (state.getUser().getUsername().equals(CURATION_USER)) {
-            if (state.getDocument().getState() == SourceDocumentState.CURATION_FINISHED) {
-                // SourceDocumentState.CURATION_FINISHED.symbol()
-                return FontAwesome5IconType.clipboard_check_s.cssClassName();
-            }
-            else {
-                // SourceDocumentState.CURATION_IN_PROGRESS.symbol()
-                return FontAwesome5IconType.clipboard_s.cssClassName();
-            }
-        }
+        var state = editorContext.getViewState();
 
         if (documentService.isAnnotationFinished(state.getDocument(), state.getUser())) {
-            // AnnotationDocumentState.FINISHED.symbol();
-            return FontAwesome5IconType.play_circle_r.cssClassName();
+            // Re-open: AnnotationDocumentState.IN_PROGRESS.symbol()
+            return FontAwesome7IconType.play_circle_r.cssClassName();
         }
         else {
-            // AnnotationDocumentState.IN_PROGRESS.symbol();
-            return FontAwesome5IconType.check_circle_r.cssClassName();
+            // Finish: AnnotationDocumentState.FINISHED.symbol()
+            return FontAwesome7IconType.check_circle_r.cssClassName();
         }
     }
 
@@ -246,13 +242,15 @@ public class MatrixWorkflowActionBarItemGroup
         var content = new ResetAnnotationDocumentConfirmationDialogContentPanel(
                 ModalDialog.CONTENT_ID);
 
-        content.setExpectedResponseModel(
-                page.getModel().map(AnnotatorState::getDocument).map(SourceDocument::getName));
+        content.setExpectedResponseModel(editorContext.getStateModel()
+                .map(AnnotatorState::getDocument).map(SourceDocument::getName));
         content.setConfirmAction(_target -> {
-            var state = page.getModelObject();
+            editorContext.getActionHandler().ensureIsEditable();
+
+            var state = editorContext.getViewState();
             documentService.resetAnnotationCas(state.getDocument(), state.getUser(),
                     EXPLICIT_ANNOTATOR_USER_ACTION);
-            page.actionLoadDocument(_target);
+            editorContext.actionLoadDocument(_target);
         });
 
         dialog.open(content, aTarget);
@@ -262,7 +260,7 @@ public class MatrixWorkflowActionBarItemGroup
         throws IOException, AnnotationException
     {
         try {
-            page.actionValidateDocument(aTarget, page.getEditorCas());
+            page.actionValidateDocument(aTarget, editorContext);
         }
         catch (ValidationException e) {
             page.error("Document cannot be marked as finished: " + e.getMessage());
@@ -280,7 +278,7 @@ public class MatrixWorkflowActionBarItemGroup
     private void actionFinishDocumentDialogSubmitted(AjaxRequestTarget aTarget,
             Form<FinishDocumentDialogModel> aForm)
     {
-        var state = page.getModelObject();
+        var state = editorContext.getAnnotatorState();
 
         var newState = aForm.getModelObject().getState();
 
@@ -291,33 +289,20 @@ public class MatrixWorkflowActionBarItemGroup
                 EXPLICIT_ANNOTATOR_USER_ACTION);
 
         if (newState == AnnotationDocumentState.IGNORE) {
+            // Document is no longer accessible so it needs to be unloaded
             state.reset();
-            state.setDocument(null, null);
+            editorContext.actionUnloadDocument(aTarget);
+            return;
         }
 
-        aTarget.add(page);
+        editorContext.refreshAfterDocumentStateChange(aTarget);
     }
 
     private void actionToggleDocumentState(AjaxRequestTarget aTarget)
+        throws IOException, AnnotationException
     {
-        // state instead
-        var state = page.getModelObject();
+        var state = editorContext.getAnnotatorState();
         var document = state.getDocument();
-
-        // Curation sidebar: when writing to the curation document, we need to update the docuement
-        if (CURATION_USER.equals(state.getUser().getUsername())) {
-            switch (document.getState()) {
-            case CURATION_FINISHED:
-                documentService.setSourceDocumentState(document, CURATION_IN_PROGRESS);
-                aTarget.add(page);
-                break;
-            default:
-                documentService.setSourceDocumentState(document, CURATION_FINISHED);
-                aTarget.add(page);
-                break;
-            }
-            return;
-        }
 
         var sessionOwner = userRepository.getCurrentUser();
         var isOwnDocument = sessionOwner.equals(state.getUser());
@@ -325,14 +310,14 @@ public class MatrixWorkflowActionBarItemGroup
                 MANAGER);
 
         if (!isOwnDocument && !canOverrideState) {
-            error("You are not allowed to change the state of another user's document.");
+            page.error("You are not allowed to change the state of another user's document.");
             aTarget.addChildren(getPage(), IFeedback.class);
             return;
         }
 
         var annDoc = documentService.getAnnotationDocument(document, state.getUser());
         if (isOwnDocument && annDoc.getAnnotatorState() != annDoc.getState() && !canOverrideState) {
-            error("Annotation state has been overridden by a project manager or curator. "
+            page.error("Annotation state has been overridden by a project manager or curator. "
                     + "You cannot change it.");
             aTarget.addChildren(getPage(), IFeedback.class);
             return;
@@ -352,15 +337,16 @@ public class MatrixWorkflowActionBarItemGroup
         switch (annState) {
         case IN_PROGRESS:
             documentService.setAnnotationDocumentState(annDoc, FINISHED, flags);
-            aTarget.add(page);
+            editorContext.refreshAfterDocumentStateChange(aTarget);
             break;
         case FINISHED:
             documentService.setAnnotationDocumentState(annDoc, IN_PROGRESS, flags);
-            aTarget.add(page);
+            editorContext.refreshAfterDocumentStateChange(aTarget);
             break;
         default:
-            error("Can only change document state for documents that are finished or in progress, "
-                    + "but document is in state [" + annState + "]");
+            page.error(
+                    "Can only change document state for documents that are finished or in progress, "
+                            + "but document is in state [" + annState + "]");
             aTarget.addChildren(getPage(), IFeedback.class);
             break;
         }

@@ -20,20 +20,21 @@ package de.tudarmstadt.ukp.inception.diam.editor.actions;
 import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.selectAnnotationByAddr;
 
 import java.io.IOException;
+import java.util.Objects;
 
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.request.IRequestParameters;
-import org.apache.wicket.request.Request;
 import org.springframework.core.annotation.Order;
 
-import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
+import de.tudarmstadt.ukp.inception.diam.editor.DiamRequest;
 import de.tudarmstadt.ukp.inception.diam.editor.config.DiamAutoConfig;
-import de.tudarmstadt.ukp.inception.diam.model.DiamContext;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.DefaultAjaxResponse;
 import de.tudarmstadt.ukp.inception.diam.model.compact.CompactRangeList;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
+import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
 import de.tudarmstadt.ukp.inception.support.uima.Range;
 
@@ -62,11 +63,17 @@ public class ScrollToHandler
     }
 
     @Override
-    public DefaultAjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-            Request aRequest)
+    public boolean accepts(DiamRequest aRequest)
+    {
+        return super.accepts(aRequest) && !getVid(aRequest.getRequest()).isSynthetic();
+    }
+
+    @Override
+    public DefaultAjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
     {
         try {
-            var context = aBehavior.getContext();
+            var context = aRequest.getContext();
+            // Do not activate context
 
             var requestParameters = aRequest.getRequestParameters();
 
@@ -88,8 +95,9 @@ public class ScrollToHandler
 
         var state = aContext.getAnnotatorState();
         var project = state.getProject();
-        var doc = state.getDocument();
         var docId = requestParameters.getParameterValue(PARAM_DOCUMENT_ID).toLong(-1);
+
+        SourceDocument doc = null;
         if (docId != -1) {
             doc = documentService.getSourceDocument(project.getId(), docId);
             if (doc == null) {
@@ -101,14 +109,48 @@ public class ScrollToHandler
         // unconditionally on the main editor's page.
         if (vid.isSet() && !vid.isSynthetic()) {
             var fs = selectAnnotationByAddr(aContext.getEditorCas(), vid.getId());
-            aContext.actionShowSelectedDocument(aTarget, doc, fs.getBegin(), fs.getEnd());
+            scrollTo(aContext, aTarget, doc, new Range(fs.getBegin(), fs.getEnd()));
             return;
         }
 
         if (!requestParameters.getParameterValue(PARAM_OFFSETS).isEmpty()) {
-            var offsets = getRangeFromRequest(requestParameters);
-            aContext.actionShowSelectedDocument(aTarget, doc, offsets.getBegin(), offsets.getEnd());
+            scrollTo(aContext, aTarget, doc, getRangeFromRequest(requestParameters));
             return;
+        }
+    }
+
+    private void scrollTo(DiamContext aContext, AjaxRequestTarget aTarget, SourceDocument aDocument,
+            Range aRange)
+        throws IOException, AnnotationException
+    {
+        if (aDocument == null) {
+            aContext.actionJumpTo(aTarget, aRange.getBegin(), aRange.getEnd());
+            return;
+        }
+
+        // The request names a document, but not whose annotations. The range is a position in the
+        // text, which is the same whoever's annotations an editor shows - so every editor showing
+        // the document scrolls there, without changing which one is active.
+        var scrolled = false;
+        var hostingEditor = aContext.getHostingEditor().orElse(null);
+        if (Objects.equals(aContext.getAnnotatorState().getDocument(), aDocument)) {
+            aContext.actionJumpTo(aTarget, aRange.getBegin(), aRange.getEnd());
+            scrolled = true;
+        }
+
+        var manager = aContext.getDocumentEditorManager();
+        for (var editor : manager.findEditorsShowing(aDocument)) {
+            if (editor != hostingEditor) {
+                editor.actionJumpTo(aTarget, aRange.getBegin(), aRange.getEnd());
+                scrolled = true;
+            }
+        }
+
+        if (!scrolled) {
+            // Nothing shows the document yet, so open it, keeping the owner this editor shows.
+            // This does make the editor receiving it the active one.
+            manager.actionShowDocument(aTarget, hostingEditor, aDocument,
+                    aContext.getAnnotatorState().getDataOwner(), aRange);
         }
     }
 
@@ -123,8 +165,17 @@ public class ScrollToHandler
 
         var offsetLists = JSONUtil.fromJsonString(CompactRangeList.class, offsets);
 
+        if (offsetLists.isEmpty()) {
+            throw new IllegalArgumentException("Scroll-to request carries no offsets");
+        }
+
         var begin = offsetLists.get(0).getBegin();
         var end = offsetLists.get(offsetLists.size() - 1).getEnd();
+
+        if (begin < 0 || end < begin) {
+            throw new IllegalArgumentException(
+                    "Scroll-to request carries an invalid range [" + begin + "-" + end + "]");
+        }
 
         return new Range(begin, end);
     }

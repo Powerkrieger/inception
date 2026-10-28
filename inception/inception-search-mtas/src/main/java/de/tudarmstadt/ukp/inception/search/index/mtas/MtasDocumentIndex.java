@@ -1310,12 +1310,12 @@ public class MtasDocumentIndex
                         var sourceDocumentId = Long.valueOf(rawSourceDocumentId);
                         var annotationDocumentId = Long.valueOf(rawAnnotationDocumentId);
                         var sourceDocument = sourceDocumentIndex.get(sourceDocumentId);
-                        var annotationDocument = annotatableDocuments.get(sourceDocument);
-
                         if (sourceDocument == null) {
                             // Document is not annotatable by this user, so we skip this result
                             continue;
                         }
+
+                        var annotationDocument = annotatableDocuments.get(sourceDocument);
 
                         if (annotationDocument != null && IGNORE == annotationDocument.getState()) {
                             LOG.trace("Skipping results from ignored document {}", sourceDocument);
@@ -1481,6 +1481,11 @@ public class MtasDocumentIndex
                 var segmentReader = (SegmentReader) leafReaderContext.reader();
                 var storedFields = segmentReader.storedFields();
                 var terms = segmentReader.terms(FIELD_CONTENT);
+                if (terms == null) {
+                    // Segment without any tokens - nothing can match here
+                    continue;
+                }
+
                 var mtasCodecInfo = CodecInfo.getCodecInfoFromTerms(terms);
                 while (spans.nextDoc() != NO_MORE_DOCS) {
                     if (segmentReader.numDocs() == segmentReader.maxDoc()

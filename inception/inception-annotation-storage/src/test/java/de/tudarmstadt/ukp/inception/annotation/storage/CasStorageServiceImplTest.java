@@ -39,8 +39,11 @@ import static org.apache.uima.fit.util.JCasUtil.select;
 import static org.apache.uima.util.CasCreationUtils.mergeTypeSystems;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.junit.jupiter.api.parallel.ExecutionMode.CONCURRENT;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -81,6 +84,7 @@ import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.session.CasSessionExcept
 import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.session.CasStorageSession;
 import de.tudarmstadt.ukp.clarin.webanno.api.type.CASMetadata;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
+import de.tudarmstadt.ukp.clarin.webanno.model.DocumentRef;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.inception.annotation.storage.config.CasStorageBackupProperties;
@@ -91,6 +95,8 @@ import de.tudarmstadt.ukp.inception.documents.api.RepositoryProperties;
 import de.tudarmstadt.ukp.inception.documents.api.RepositoryPropertiesImpl;
 import de.tudarmstadt.ukp.inception.schema.api.event.LayerConfigurationChangedEvent;
 import de.tudarmstadt.ukp.inception.support.uima.WebAnnoCasUtil;
+import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasBackup;
+import org.apache.commons.io.FileUtils;
 
 @Execution(CONCURRENT)
 public class CasStorageServiceImplTest
@@ -160,6 +166,42 @@ public class CasStorageServiceImplTest
             sut.deleteCas(doc, set);
             assertThat(sut.existsCas(doc, set)).isFalse();
             assertThat(casStorageSession.contains(cas)).isFalse();
+        }
+    }
+
+    @Test
+    public void testThatBackupsOfADeletedCasAreStillListed() throws Exception
+    {
+        try (var casStorageSession = openNested(true)) {
+            var doc = makeSourceDocument(24l, 24l, "test");
+            var set = AnnotationSet.forTest("test");
+            var otherSet = AnnotationSet.forTest("test2");
+            var cas = createCas(createTypeSystemDescription());
+            cas.setDocumentText("This is a test");
+            casStorageSession.add(AnnotationSet.forTest("cas"), EXCLUSIVE_WRITE_ACCESS, cas);
+
+            assertThat(sut.listCasBackups(doc, set)).isEmpty();
+
+            // With the default backup settings, the first write starts the history
+            sut.writeCas(doc, cas, set);
+            sut.writeCas(doc, cas, otherSet);
+            assertThat(sut.listCasBackups(doc, set)).singleElement().satisfies(b -> {
+                assertThat(b.document()).isEqualTo(DocumentRef.of(doc));
+                assertThat(b.set()).isEqualTo(set);
+                assertThat(b.name()).matches("test\\.ser\\.[0-9]+\\.bak");
+            });
+
+            // An interrupted write leaves the previous version behind
+            var casFile = driver.getCasFile(doc, set);
+            FileUtils.copyFile(casFile, new File(casFile.getPath() + ".old"));
+
+            sut.deleteCas(doc, set);
+
+            assertThat(sut.existsCas(doc, set)).isFalse();
+            assertThat(sut.listCasBackups(doc, set)) //
+                    .extracting(CasBackup::name) //
+                    .hasSize(2) //
+                    .contains("test.ser.old");
         }
     }
 
@@ -301,6 +343,40 @@ public class CasStorageServiceImplTest
         var cas = makeCas("This is a test");
 
         assertThat(CasMetadataUtils.canMarkTransient(cas)).isTrue();
+    }
+
+    @Test
+    public void testThatCasWithoutCasMetadataTypeCanStillBeAccessed() throws Exception
+    {
+        // A CAS serialized with a type system predating the introduction of CASMetadata does not
+        // declare the type at all. Such a CAS must still be readable - stamping is simply skipped
+        // and the metadata accessors report "absent" instead of failing. Otherwise the CAS could
+        // not even be read for read-only purposes such as export or CasDoctor checks.
+        var tsd = UIMAFramework.getResourceSpecifierFactory().createTypeSystemDescription();
+        var cas = CasCreationUtils.createCas(tsd, null, null);
+
+        assertThat(CasMetadataUtils.supportsCasMetadata(cas)).isFalse();
+        assertThat(CasMetadataUtils.canMarkTransient(cas)).isFalse();
+
+        var doc = makeSourceDocument(15l, 15l, "test");
+
+        // Stamping must be a no-op rather than throwing
+        assertThatNoException()
+                .isThrownBy(() -> CasMetadataUtils.addOrUpdateCasMetadata(cas, 1234l, doc, "test"));
+
+        // ... and all accessors must report the metadata as absent
+        assertThat(CasMetadataUtils.getLastChanged(cas))
+                .isEqualTo(CasMetadataUtils.UNKNOWN_CAS_TIMESTAMP);
+        assertThat(CasMetadataUtils.isTransientCas(cas)).isFalse();
+        assertThat(CasMetadataUtils.getCasMetadataFS(cas)).isEmpty();
+        assertThat(CasMetadataUtils.getUsername(cas)).isEmpty();
+        assertThat(CasMetadataUtils.getSourceDocumentId(cas)).isEmpty();
+        assertThat(CasMetadataUtils.getSourceDocumentName(cas)).isEmpty();
+        assertThat(CasMetadataUtils.getProjectId(cas)).isEmpty();
+        assertThat(CasMetadataUtils.getProjectName(cas)).isEmpty();
+
+        // Clearing must also tolerate the missing type
+        assertThatNoException().isThrownBy(() -> CasMetadataUtils.clearCasMetadata(cas));
     }
 
     @Test
@@ -686,6 +762,116 @@ public class CasStorageServiceImplTest
             var cas = shortTimeoutSut.readCas(doc, set, EXCLUSIVE_WRITE_ACCESS);
             assertThat(cas).isNotNull();
         }
+    }
+
+    @Test
+    public void testExportCasWorksWhileEnclosingSessionHoldsExclusiveAccess() throws Exception
+    {
+        // A caller which already holds exclusive access to a CAS - e.g. the project exporter after
+        // lazily creating a missing initial CAS - must still be able to export it. Since the
+        // exclusive access pool is keyed per document, a second borrow on the same thread can never
+        // be satisfied: it would block until the borrow timeout and then fail. The export must
+        // therefore recognize the exclusive access held by the enclosing session instead of trying
+        // to borrow the CAS again.
+        var shortTimeoutSut = createStorageService(Duration.ofMillis(250));
+        var doc = makeSourceDocument(20l, 20l, "test");
+        var set = AnnotationSet.forTest("test");
+
+        try (var session = openNested(true)) {
+            createCasFile(shortTimeoutSut, doc, set, "This is a test");
+        }
+
+        var buffer = new ByteArrayOutputStream();
+        try (var session = CasStorageSession.open()) {
+            // Take exclusive access and keep it for the duration of the export
+            shortTimeoutSut.readCas(doc, set, EXCLUSIVE_WRITE_ACCESS);
+
+            shortTimeoutSut.exportCas(doc, set, buffer);
+        }
+
+        assertThat(buffer.size()).isGreaterThan(0);
+    }
+
+    @Test
+    public void testExportCasTakesExclusiveAccessWhenNobodyElseHoldsIt() throws Exception
+    {
+        // The counterpart to the test above: when no enclosing session holds the CAS, the export
+        // must acquire the exclusive access itself so that the CAS cannot be re-written on disk
+        // while its bytes are being copied.
+        var doc = makeSourceDocument(21l, 21l, "test");
+        var set = AnnotationSet.forTest("test");
+
+        try (var session = openNested(true)) {
+            createCasFile(doc, set, "This is a test");
+        }
+
+        var buffer = new ByteArrayOutputStream();
+        try (var session = CasStorageSession.open()) {
+            sut.exportCas(doc, set, buffer);
+
+            // The export must not leave the CAS registered in the caller's session
+            assertThat(session.getManagedState(doc.getId(), set)).isEmpty();
+        }
+
+        assertThat(buffer.size()).isGreaterThan(0);
+
+        // The CAS must have been returned to the pool - if it had not, this would block until the
+        // borrow timeout and then fail
+        try (var session = CasStorageSession.open()) {
+            assertThat(sut.readCas(doc, set, EXCLUSIVE_WRITE_ACCESS)).isNotNull();
+        }
+    }
+
+    @Test
+    public void testImportCasWorksWhileEnclosingSessionHoldsExclusiveAccess() throws Exception
+    {
+        // Same as for the export: a caller which already holds exclusive access must be able to
+        // import into the CAS without the import trying to borrow it a second time.
+        var shortTimeoutSut = createStorageService(Duration.ofMillis(250));
+        var doc = makeSourceDocument(22l, 22l, "test");
+        var set = AnnotationSet.forTest("test");
+
+        var exported = new ByteArrayOutputStream();
+        try (var session = CasStorageSession.open()) {
+            createCasFile(shortTimeoutSut, doc, set, "This is a test");
+            shortTimeoutSut.exportCas(doc, set, exported);
+        }
+
+        try (var session = CasStorageSession.open()) {
+            // Take exclusive access and keep it for the duration of the import
+            shortTimeoutSut.readCas(doc, set, EXCLUSIVE_WRITE_ACCESS);
+
+            shortTimeoutSut.importCas(doc, set, new ByteArrayInputStream(exported.toByteArray()));
+
+            assertThat(shortTimeoutSut.existsCas(doc, set)).isTrue();
+        }
+    }
+
+    @Test
+    public void testForceActionOnCasWorksWhenNobodyElseHoldsExclusiveAccess() throws Exception
+    {
+        // Unlike the export, forceActionOnCas replaces the CAS in the exclusive access holder. That
+        // requires it to have borrowed the CAS itself - it cannot replace a CAS which an enclosing
+        // session registered - so it is only exercised without an enclosing lock here.
+        var doc = makeSourceDocument(23l, 23l, "test");
+        var set = AnnotationSet.forTest("test");
+
+        try (var session = openNested(true)) {
+            createCasFile(doc, set, "This is a test");
+        }
+
+        var actionWasApplied = new AtomicBoolean(false);
+        try (var session = CasStorageSession.open()) {
+            sut.forceActionOnCas(doc, set, //
+                    (d, s) -> driver.readCas(d, s), //
+                    (d, s, cas) -> actionWasApplied.set(true), //
+                    true);
+
+            // The action must not leave the CAS registered in the caller's session
+            assertThat(session.getManagedState(doc.getId(), set)).isEmpty();
+        }
+
+        assertThat(actionWasApplied).isTrue();
     }
 
     @Test

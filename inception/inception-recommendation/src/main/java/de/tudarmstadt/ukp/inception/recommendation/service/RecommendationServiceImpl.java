@@ -31,7 +31,6 @@ import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.toMap;
 import static org.apache.commons.collections4.CollectionUtils.isEmpty;
 
-import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -77,6 +76,7 @@ import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer_;
+import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
@@ -126,10 +126,12 @@ import de.tudarmstadt.ukp.inception.recommendation.tasks.NonTrainableRecommender
 import de.tudarmstadt.ukp.inception.recommendation.tasks.PredictionTask;
 import de.tudarmstadt.ukp.inception.recommendation.tasks.SelectionTask;
 import de.tudarmstadt.ukp.inception.recommendation.tasks.TrainingTask;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.scheduling.SchedulingService;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.event.LayerConfigurationChangedEvent;
 import de.tudarmstadt.ukp.inception.support.logging.LogMessage;
 import de.tudarmstadt.ukp.inception.support.logging.LogMessageGroup;
@@ -580,7 +582,8 @@ public class RecommendationServiceImpl
         // suggestions that need to be processed (in particular ones that may have been generated
         // by the non-trainable recommenders triggered above or from already existing predictions
         if (aEvent.getStateBeforeOpening() == AnnotationDocumentState.NEW) {
-            autoAcceptOnDocumentOpen(aEvent.getRequestTarget().orElse(null), sessionOwner, doc,
+            autoAcceptOnDocumentOpen(aEvent.getSource(), aEvent.getRequestTarget().orElse(null),
+                    sessionOwner, doc, AnnotationSet.forUser(dataOwner), aEvent.getCas(),
                     ON_FIRST_ACCESS);
         }
 
@@ -661,21 +664,28 @@ public class RecommendationServiceImpl
         return true;
     }
 
-    private void autoAcceptOnDocumentOpen(AjaxRequestTarget aTarget, User aSessionOwner,
-            SourceDocument aDocument, AutoAcceptMode aAutoAcceptMode)
+    private void autoAcceptOnDocumentOpen(DocumentEditorManager aManager, AjaxRequestTarget aTarget,
+            User aSessionOwner, SourceDocument aDocument, AnnotationSet aDataOwner, CAS aCas,
+            AutoAcceptMode aAutoAcceptMode)
     {
+        if (!(aManager instanceof AnnotationPage page)) {
+            LOG.trace("Not auto-accepting when not triggered through AnnotationPage");
+            return;
+        }
+
         if (aTarget == null) {
             LOG.trace("Not auto-accepting outside AJAX requests");
             return;
         }
 
-        if (!(aTarget.getPage() instanceof AnnotationPage)) {
-            LOG.trace("Not auto-accepting when not triggered through AnnotationPage");
+        var context = aManager.findEditorFor(aDocument, aDataOwner).orElse(null);
+        if (context == null) {
+            LOG.trace("Not auto-accepting because no editor holds the opened document");
             return;
         }
 
-        var page = (AnnotationPage) aTarget.getPage();
-        if (!page.isEditable()) {
+        var handler = context.getActionHandler();
+        if (!handler.isEditable()) {
             return;
         }
 
@@ -685,20 +695,11 @@ public class RecommendationServiceImpl
             return;
         }
 
-        CAS cas;
-        try {
-            cas = page.getEditorCas();
-        }
-        catch (IOException e) {
-            LOG.error("Not auto-accepting because editor CAS could not be loaded", e);
-            return;
-        }
-
-        var accepted = autoAccept(aSessionOwner, aDocument, aAutoAcceptMode, predictions, cas);
+        var accepted = autoAccept(aSessionOwner, aDocument, aAutoAcceptMode, predictions, aCas);
 
         if (accepted > 0) {
             try {
-                page.writeEditorCas(cas);
+                handler.writeEditorCas(aCas);
             }
             catch (Exception e) {
                 WicketExceptionUtil.handleException(LOG, page, aTarget, e);
@@ -826,13 +827,17 @@ public class RecommendationServiceImpl
             return;
         }
 
-        var recommenders = listEnabledRecommenders(aEvent.getDocument().getProject());
+        var annDoc = aEvent.getDocument();
+        var document = annDoc.getDocument();
+        var project = document.getProject();
+
+        var recommenders = listEnabledRecommenders(project);
         if (recommenders.isEmpty()) {
             return;
         }
 
-        runSynchronousRecommenders(aEvent.getDocument().getDocument(),
-                aEvent.getDocument().getUser(), recommenders, "onAfterCasWritten");
+        runSynchronousRecommenders(document, aEvent.getDocument().getUser(), recommenders,
+                "onAfterCasWritten");
 
         var committed = requestCycle.getMetaData(COMMITTED);
         if (committed == null) {
@@ -840,7 +845,6 @@ public class RecommendationServiceImpl
             requestCycle.setMetaData(COMMITTED, committed);
         }
 
-        var annDoc = aEvent.getDocument();
         committed.add(new CommittedDocument(annDoc));
 
         var containsTrainingTrigger = false;
@@ -851,15 +855,19 @@ public class RecommendationServiceImpl
         }
 
         if (!containsTrainingTrigger) {
-            // Hack to figure out which annotations the user is viewing. This obviously works only
-            // if the user is viewing annotations through an AnnotationPageBase ... still not a
-            // bad guess
-            var handler = PageRequestHandlerTracker.getLastHandler(requestCycle);
-            if (handler.isPageInstanceCreated()
-                    && handler.getPage() instanceof AnnotationPageBase) {
-                var state = ((AnnotationPageBase) handler.getPage()).getModelObject();
-                requestCycle.getListeners().add(new TriggerTrainingTaskListener(state.getDocument(),
-                        state.getUser().getUsername()));
+            // HACK: Figure out which annotations the user is viewing. This works only if they are
+            // viewing them through an AnnotationPageBase ... still not a bad guess.
+            //
+            // This is only the fallback: at the end of the request, the listener prefers the
+            // dirtied document that is open in an editor, which need not be the active one (e.g.
+            // after using the undo button of an inactive editor).
+            var activeState = findEditorManager(requestCycle) //
+                    .flatMap(DocumentEditorManager::getActiveEditor) //
+                    .map(DiamContext::getAnnotatorState) //
+                    .orElse(null);
+            if (activeState != null && activeState.getDocument() != null) {
+                requestCycle.getListeners().add(new TriggerTrainingTaskListener(
+                        activeState.getDocument(), activeState.getUser().getUsername()));
             }
             else {
                 // Otherwise use the document from the event... mind that if there are multiple
@@ -874,6 +882,38 @@ public class RecommendationServiceImpl
             }
         }
     }
+
+    private static Optional<DocumentEditorManager> findEditorManager(RequestCycle aCycle)
+    {
+        var handler = PageRequestHandlerTracker.getLastHandler(aCycle);
+        if (handler != null && handler.isPageInstanceCreated()
+                && handler.getPage() instanceof AnnotationPageBase page) {
+            return Optional.ofNullable(page.getDocumentEditorManager());
+        }
+
+        return empty();
+    }
+
+    private static Optional<DirtyDocument> findSoleOpenDirtyDocument(RequestCycle aCycle,
+            Collection<DirtySpot> aDirties)
+    {
+        var manager = findEditorManager(aCycle).orElse(null);
+        if (manager == null) {
+            return empty();
+        }
+
+        var openDocuments = aDirties.stream() //
+                .map(spot -> new DirtyDocument(spot.getDocument(), spot.getUser())) //
+                .distinct() //
+                .filter(doc -> manager
+                        .findEditorFor(doc.document(), AnnotationSet.forUser(doc.dataOwner()))
+                        .isPresent()) //
+                .toList();
+
+        return openDocuments.size() == 1 ? Optional.of(openDocuments.get(0)) : empty();
+    }
+
+    private static record DirtyDocument(SourceDocument document, String dataOwner) {}
 
     private void runSynchronousRecommenders(SourceDocument aDocument, String aDataOwner,
             List<Recommender> recommenders, String aTrigger)
@@ -989,6 +1029,30 @@ public class RecommendationServiceImpl
                 .withSessionOwner(sessionOwner) //
                 .withTrigger(aEventName) //
                 .withCurrentDocument(aDocument) //
+                .withDataOwner(aDataOwner) //
+                .build());
+    }
+
+    @Override
+    public void triggerPrediction(String aSessionOwner, String aEventName, Project aProject,
+            String aDataOwner)
+    {
+        if (isSuspended(aSessionOwner, aProject)) {
+            return;
+        }
+
+        var sessionOwner = userRepository.get(aSessionOwner);
+
+        if (sessionOwner == null) {
+            return;
+        }
+
+        setPredictForAllDocuments(aSessionOwner, aProject, true);
+
+        schedulingService.enqueue(PredictionTask.builder() //
+                .withSessionOwner(sessionOwner) //
+                .withTrigger(aEventName) //
+                .withProject(aProject) //
                 .withDataOwner(aDataOwner) //
                 .build());
     }
@@ -1168,9 +1232,9 @@ public class RecommendationServiceImpl
     }
 
     @Override
-    public boolean isPredictForAllDocuments(String aUser, Project aProject)
+    public boolean isPredictForAllDocuments(String aSessionOwner, Project aProject)
     {
-        return getState(aUser, aProject).isPredictForAllDocuments();
+        return getState(aSessionOwner, aProject).isPredictForAllDocuments();
     }
 
     @Override
@@ -1450,8 +1514,8 @@ public class RecommendationServiceImpl
 
         public CommittedDocument(AnnotationDocument aDocument)
         {
-            projectId = aDocument.getProject().getId();
-            documentId = aDocument.getId();
+            projectId = aDocument.getDocument().getProject().getId();
+            documentId = aDocument.getDocument().getId();
             user = aDocument.getUser();
         }
 
@@ -1841,10 +1905,9 @@ public class RecommendationServiceImpl
             }
 
             // Any dirties which have not been committed can be ignored
-            for (var committedDocument : committed) {
-                dirties.removeIf(dirty -> dirty.affectsDocument(committedDocument.getDocumentId(),
-                        committedDocument.getUser()));
-            }
+            dirties.removeIf(dirty -> committed.stream().noneMatch(
+                    committedDocument -> dirty.affectsDocument(committedDocument.getDocumentId(),
+                            committedDocument.getUser())));
 
             // Concurrent action has deleted project, so we can ignore this
             var affectedProjects = dirties.stream() //
@@ -1865,8 +1928,14 @@ public class RecommendationServiceImpl
 
             for (var contextDirties : dirtiesByContext.entrySet()) {
                 var key = contextDirties.getKey();
+                // Predict on the document that was actually changed if it is shown in an editor -
+                // that need not be the active editor. Otherwise, fall back to the guess made when
+                // the listener was registered.
+                var openDocument = findSoleOpenDirtyDocument(cycle, contextDirties.getValue());
                 triggerTraining(key.user(), affectedProjects.get(key.projectId()),
-                        "Committed dirty CAS at end of request", currentDocument, dataOwner, false,
+                        "Committed dirty CAS at end of request",
+                        openDocument.map(DirtyDocument::document).orElse(currentDocument),
+                        openDocument.map(DirtyDocument::dataOwner).orElse(dataOwner), false,
                         contextDirties.getValue());
             }
         }
@@ -2164,8 +2233,7 @@ public class RecommendationServiceImpl
 
     @Override
     @Transactional(readOnly = true)
-    public boolean hasSkippedSuggestions(String aSessionOwner, User aDataOwner,
-            AnnotationLayer aLayer)
+    public boolean hasSkippedSuggestions(User aDataOwner, AnnotationLayer aLayer)
     {
         var sql = String.join("\n", //
                 "SELECT COUNT(*) FROM LearningRecord WHERE", //

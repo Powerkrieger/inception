@@ -23,13 +23,12 @@ import java.lang.invoke.MethodHandles;
 
 import org.apache.uima.cas.impl.LowLevelException;
 import org.apache.wicket.ajax.AjaxRequestTarget;
-import org.apache.wicket.request.Request;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
-import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
+import de.tudarmstadt.ukp.inception.diam.editor.DiamRequest;
 import de.tudarmstadt.ukp.inception.diam.editor.config.DiamAutoConfig;
 import de.tudarmstadt.ukp.inception.diam.editor.lazydetails.LazyDetailsLookupService;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.AjaxResponse;
@@ -62,18 +61,17 @@ public class LazyDetailsHandler
     }
 
     @Override
-    public AjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-            Request aRequest)
+    public AjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
     {
         try {
-            var context = aBehavior.getContext();
+            var context = aRequest.getContext();
 
             CasProvider casProvider = () -> context.getEditorCas();
 
             // Parse annotation ID if present in request
             var paramId = getVid(aRequest);
             var state = context.getAnnotatorState();
-            var details = lazyDetailsLookupService.lookupLazyDetails(
+            var details = lazyDetailsLookupService.lookupLazyDetails(context,
                     aRequest.getRequestParameters(), paramId, casProvider, state.getDocument(),
                     state.getUser(), state.getWindowBeginOffset(), state.getWindowEndOffset());
             attachResponse(aTarget, aRequest, toInterpretableJsonString(details));

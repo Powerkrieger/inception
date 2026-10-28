@@ -27,6 +27,7 @@ import org.apache.uima.cas.CAS;
 import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.ConcurentCasModificationException;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
+import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState;
 import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
 
 public interface CurationDocumentService
@@ -52,6 +53,22 @@ public interface CurationDocumentService
     void writeCurationCas(CAS aCas, SourceDocument document, boolean aUpdateTimestamp)
         throws IOException;
 
+    /**
+     * Like {@link #writeCurationCas}, but does not publish an {@code AfterCasWrittenEvent}. Use
+     * this when the write does not change the annotations, e.g. when only persisting a CAS upgrade.
+     *
+     * @param aCas
+     *            the CAS.
+     * @param document
+     *            the source document.
+     * @param aUpdateTimestamp
+     *            whether to update the timestamp on the source document
+     * @throws IOException
+     *             if an I/O error occurs.
+     */
+    void writeCurationCasSilently(CAS aCas, SourceDocument document, boolean aUpdateTimestamp)
+        throws IOException;
+
     void upgradeCurationCas(CAS aCurCas, SourceDocument document) throws UIMAException, IOException;
 
     /**
@@ -67,7 +84,33 @@ public interface CurationDocumentService
 
     void deleteCurationCas(SourceDocument document) throws IOException;
 
+    /**
+     * Discards the curation of the given document: deletes the curation CAS and sets the annotation
+     * document of the curation user back to {@code NEW}. A document in curation is moved to
+     * {@link SourceDocumentState#ANNOTATION_IN_PROGRESS}, any other document keeps its state.
+     * <p>
+     * Whether the document is in curation is decided on its current state in the database, read
+     * after the curation CAS has been deleted - not on the state of the given object, which may be
+     * outdated if a curator has started curation in the meantime. Recalculating the document state
+     * according to the workload is left to the caller. Pass it a freshly loaded copy of the
+     * document.
+     *
+     * @param aDocument
+     *            the source document.
+     * @return whether the document was in curation and has been moved out of it.
+     * @throws IOException
+     *             if the curation CAS cannot be deleted.
+     */
+    boolean resetCuration(SourceDocument aDocument) throws IOException;
+
     List<SourceDocument> listCuratableSourceDocuments(Project aProject);
+
+    /**
+     * @param aDocument
+     *            the source document.
+     * @return whether the document may be opened for curation.
+     */
+    boolean isDocumentCuratable(SourceDocument aDocument);
 
     /**
      * @param aSourceDocument
@@ -99,6 +142,15 @@ public interface CurationDocumentService
     List<SourceDocument> listCuratedDocuments(Project project);
 
     boolean isCurationFinished(SourceDocument aDocument);
+
+    /**
+     * Marks a document as {@link SourceDocumentState#CURATION_IN_PROGRESS} unless it is already in
+     * a curation state.
+     *
+     * @param aDocument
+     *            the source document.
+     */
+    void markCurationInProgress(SourceDocument aDocument);
 
     /**
      * @param aDocument

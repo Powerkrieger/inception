@@ -17,17 +17,18 @@
  */
 package de.tudarmstadt.ukp.clarin.webanno.ui.curation.actionbar;
 
-import static java.lang.Integer.MAX_VALUE;
+import java.util.List;
 
 import org.apache.wicket.markup.html.panel.Panel;
+import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.springframework.core.annotation.Order;
 
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarContext;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarExtension;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
-import de.tudarmstadt.ukp.clarin.webanno.ui.curation.page.LegacyCurationPage;
-import de.tudarmstadt.ukp.inception.ui.curation.actionbar.opendocument.CurationOpenDocumentDialog;
-import de.tudarmstadt.ukp.inception.ui.curation.page.CurationPage;
+import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
+import de.tudarmstadt.ukp.inception.ui.curation.page.CuratableDocumentPage;
 
 @Order(ActionBarExtension.ORDER_DOCUMENT_NAVIGATOR)
 public class CurationDocumentNavigatorActionBarExtension
@@ -42,40 +43,28 @@ public class CurationDocumentNavigatorActionBarExtension
     @Override
     public int getPriority()
     {
-        return MAX_VALUE;
+        return PRIORITY_GLOBAL;
     }
 
     @Override
-    public boolean accepts(AnnotationPageBase aPage)
+    public boolean accepts(ActionBarContext aContext)
     {
-        return aPage instanceof LegacyCurationPage || aPage instanceof CurationPage;
+        return aContext.page() instanceof CuratableDocumentPage;
     }
 
     @Override
-    public Panel createActionBarItem(String aId, AnnotationPageBase aPage)
+    public Panel createActionBarItem(String aId, ActionBarContext aContext)
     {
-        return new CurationDocumentNavigator(aId, aPage);
+        var documents = listCuratableDocuments(aContext.page());
+        return new CurationDocumentNavigator(aId, aContext, documents);
     }
 
-    @Override
-    public void onInitialize(AnnotationPageBase aPage)
+    private static IModel<List<SourceDocument>> listCuratableDocuments(AnnotationPageBase aPage)
     {
-        // Open the dialog if no document has been selected.
-        aPage.add(new CurationAutoOpenDialogBehavior());
+        if (aPage instanceof CuratableDocumentPage page) {
+            return LoadableDetachableModel.of(page::listCuratableDocuments);
+        }
 
-        // We put the dialog into the page footer since this is presently the only place where we
-        // can dynamically add stuff to the page. We cannot add simply to the action bar (i.e.
-        // DocumentNavigator) because the action bar only shows *after* a document has been
-        // selected. In order to allow the dialog to be rendered *before* a document has been
-        // selected (i.e. when the action bar is still not on screen), we need to attach it to the
-        // page. The same for the AutoOpenDialogBehavior we add below.
-        aPage.addToFooter(createOpenDocumentsDialog("item", aPage));
-    }
-
-    private CurationOpenDocumentDialog createOpenDocumentsDialog(String aId,
-            AnnotationPageBase aPage)
-    {
-        return new CurationOpenDocumentDialog(aId, aPage.getModel(),
-                LoadableDetachableModel.of(aPage::getListOfDocs));
+        throw new IllegalStateException("Page class [" + aPage.getClass() + "] not supported");
     }
 }

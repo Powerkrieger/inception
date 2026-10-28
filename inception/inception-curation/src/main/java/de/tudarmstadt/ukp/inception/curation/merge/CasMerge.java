@@ -60,10 +60,11 @@ import de.tudarmstadt.ukp.inception.annotation.storage.CasMetadataUtils;
 import de.tudarmstadt.ukp.inception.curation.api.Position;
 import de.tudarmstadt.ukp.inception.curation.merge.strategy.DefaultMergeStrategy;
 import de.tudarmstadt.ukp.inception.curation.merge.strategy.MergeStrategy;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.IllegalFeatureValueException;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.TypeAdapter;
+import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureUtil;
 import de.tudarmstadt.ukp.inception.support.logging.LogMessage;
 import de.tudarmstadt.ukp.inception.support.uima.WebAnnoCasUtil;
 
@@ -274,7 +275,7 @@ public class CasMerge
     private void mergeDocumentMetadataLayers(DiffResult aDiff, SourceDocument aTargetDocument,
             String aTargetUsername, CAS aTargetCas, Map<String, CAS> aCasMap,
             PerCasMergeContext aLocalContext, Map<String, AnnotationLayer> aType2layer,
-            ArrayList<String> aLayerNames)
+            List<String> aLayerNames)
     {
         for (var layerName : aLayerNames) {
             var positions = aDiff.getPositions().stream()
@@ -620,26 +621,27 @@ public class CasMerge
         }
     }
 
-    static void copyFeatures(CasMergeContext aContext, SourceDocument aDocument, String aUsername,
-            TypeAdapter aAdapter, FeatureStructure aTargetFS, FeatureStructure aSourceFs)
+    static void copyFeatures(CasMergeContext aContext, SourceDocument aDocument,
+            String aTargetDataOwner, TypeAdapter aAdapter, FeatureStructure aTargetFS,
+            FeatureStructure aSourceFs)
         throws AnnotationException
     {
         // Cache the feature list instead of hammering the database
         var features = aContext.listSupportedFeatures(aAdapter.getLayer());
-        try (var featureUpdateCtx = aAdapter.updateFeatureValues(aDocument, aUsername,
+        var sourceFsType = aAdapter.getAnnotationType(aSourceFs.getCAS())
+                .orElseThrow(() -> new IllegalStateException("Source CAS does not define the type ["
+                        + aAdapter.getAnnotationTypeName() + "]"));
+        try (var featureUpdateCtx = aAdapter.updateFeatureValues(aDocument, aTargetDataOwner,
                 aTargetFS.getCAS(), getAddr(aTargetFS))) {
             for (var feature : features) {
                 if (!feature.isCuratable()) {
                     continue;
                 }
 
-                var sourceFsType = aAdapter.getAnnotationType(aSourceFs.getCAS()).get();
-                var sourceFeature = sourceFsType.getFeatureByBaseName(feature.getName());
-
-                if (sourceFeature == null) {
-                    throw new IllegalStateException("Source CAS type [" + sourceFsType.getName()
-                            + "] does not define a feature named [" + feature.getName() + "]");
-                }
+                FeatureUtil.getFeature(sourceFsType, feature)
+                        .orElseThrow(() -> new IllegalStateException("Source CAS type ["
+                                + sourceFsType.getName() + "] does not define a feature named ["
+                                + feature.getName() + "]"));
 
                 if (!aAdapter.getFeatureSupport(feature.getName())
                         .map(fs -> fs.isCopyOnCurationMerge(feature)).orElse(false)) {
@@ -661,36 +663,38 @@ public class CasMerge
         }
     }
 
-    public CasMergeOperationResult mergeSlotFeature(SourceDocument aDoc, String aSrcUser,
+    public CasMergeOperationResult mergeSlotFeature(SourceDocument aDoc, String aTargetDataOwner,
             AnnotationLayer aLayer, CAS aTargetCas, AnnotationFS aSourceAnnotation, String aFeature,
             int aSlot)
         throws AnnotationException
     {
-        return CasMergeLinkFeature.mergeSlotFeature(context, aDoc, aSrcUser, aLayer, aTargetCas,
-                aSourceAnnotation, aFeature, aSlot);
+        return CasMergeLinkFeature.mergeSlotFeature(context, aDoc, aTargetDataOwner, aLayer,
+                aTargetCas, aSourceAnnotation, aFeature, aSlot);
     }
 
-    public CasMergeOperationResult mergeRelationAnnotation(SourceDocument aDoc, String aSrcUser,
+    public CasMergeOperationResult mergeRelationAnnotation(SourceDocument aDoc,
+            String aTargetDataOwner, AnnotationLayer aLayer, CAS aTargetCas,
+            AnnotationFS aSourceAnnotation)
+        throws AnnotationException
+    {
+        return CasMergeRelation.mergeRelationAnnotation(context, aDoc, aTargetDataOwner, aLayer,
+                aTargetCas, aSourceAnnotation, aLayer.isAllowStacking());
+    }
+
+    public CasMergeOperationResult mergeSpanAnnotation(SourceDocument aDoc, String aTargetDataOwner,
             AnnotationLayer aLayer, CAS aTargetCas, AnnotationFS aSourceAnnotation)
         throws AnnotationException
     {
-        return CasMergeRelation.mergeRelationAnnotation(context, aDoc, aSrcUser, aLayer, aTargetCas,
+        return CasMergeSpan.mergeSpanAnnotation(context, aDoc, aTargetDataOwner, aLayer, aTargetCas,
                 aSourceAnnotation, aLayer.isAllowStacking());
     }
 
-    public CasMergeOperationResult mergeSpanAnnotation(SourceDocument aDoc, String aSrcUser,
-            AnnotationLayer aLayer, CAS aTargetCas, AnnotationFS aSourceAnnotation)
+    public CasMergeOperationResult mergeDocumentAnnotation(SourceDocument aDoc,
+            String aTargetDataOwner, AnnotationLayer aLayer, CAS aTargetCas,
+            AnnotationBase aSourceAnnotation)
         throws AnnotationException
     {
-        return CasMergeSpan.mergeSpanAnnotation(context, aDoc, aSrcUser, aLayer, aTargetCas,
-                aSourceAnnotation, aLayer.isAllowStacking());
-    }
-
-    public CasMergeOperationResult mergeDocumentAnnotation(SourceDocument aDoc, String aSrcUser,
-            AnnotationLayer aLayer, CAS aTargetCas, AnnotationBase aSourceAnnotation)
-        throws AnnotationException
-    {
-        return CasMergeDocument.mergeDocumentAnnotation(context, aDoc, aSrcUser, aLayer, aTargetCas,
-                aSourceAnnotation);
+        return CasMergeDocument.mergeDocumentAnnotation(context, aDoc, aTargetDataOwner, aLayer,
+                aTargetCas, aSourceAnnotation);
     }
 }

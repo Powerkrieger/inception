@@ -42,7 +42,7 @@ import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.LinkMode;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.TypeAdapter;
 import de.tudarmstadt.ukp.inception.schema.api.feature.LinkWithRoleModel;
 import de.tudarmstadt.ukp.inception.schema.api.feature.MaterializedLink;
@@ -52,7 +52,7 @@ class CasMergeLinkFeature
     private static final Logger LOG = LoggerFactory.getLogger(CasMerge.class);
 
     static CasMergeOperationResult mergeSlotFeature(CasMergeContext aContext,
-            SourceDocument aDocument, String aDataOwner, AnnotationLayer aAnnotationLayer,
+            SourceDocument aDocument, String aTargetDataOwner, AnnotationLayer aAnnotationLayer,
             CAS aTargetCas, AnnotationFS aSourceFs, String aSourceFeature, int aSourceSlotIndex)
         throws AnnotationException
     {
@@ -129,7 +129,7 @@ class CasMergeLinkFeature
             throw new AnnotationException("Feature [" + aSourceFeature + "] is not a slot feature");
         }
 
-        adapter.setFeatureValue(aDocument, aDataOwner, aTargetCas, getAddr(targetLinkHost),
+        adapter.setFeatureValue(aDocument, aTargetDataOwner, aTargetCas, getAddr(targetLinkHost),
                 slotFeature, targetLinks);
 
         return new CasMergeOperationResult(UPDATED, getAddr(targetLinkHost));

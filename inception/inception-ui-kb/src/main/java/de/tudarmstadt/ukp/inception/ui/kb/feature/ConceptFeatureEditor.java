@@ -53,12 +53,12 @@ import org.wicketstuff.jquery.core.JQueryBehavior;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.keybindings.KeyBindingsPanel;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.inception.bootstrap.BootstrapModalDialog;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.kb.ConceptFeatureTraits;
 import de.tudarmstadt.ukp.inception.kb.ConceptFeatureValueType;
 import de.tudarmstadt.ukp.inception.kb.KnowledgeBaseService;
 import de.tudarmstadt.ukp.inception.kb.graph.KBHandle;
 import de.tudarmstadt.ukp.inception.kb.graph.KBObject;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.FeatureState;
 import de.tudarmstadt.ukp.inception.schema.api.feature.FeatureEditorValueChangedEvent;
@@ -106,7 +106,18 @@ public class ConceptFeatureEditor
         iriBadge.add(visibleWhen(iriBadge.getModel().map(urlValidator::isValid)));
         add(iriBadge);
 
-        openIriLink = new ExternalLink("openIri", iriModel);
+        openIriLink = new ExternalLink("openIri", iriModel)
+        {
+            private static final long serialVersionUID = -5585409516364934617L;
+
+            @Override
+            public boolean isEnabledInHierarchy()
+            {
+                // Following the link does not change the annotation, so it should also work when
+                // the editor is read-only. Otherwise, Wicket would render the link without href.
+                return true;
+            }
+        };
         openIriLink.setOutputMarkupPlaceholderTag(true);
         openIriLink.add(visibleWhen(() -> isNotBlank(iriBadge.getModelObject())));
         add(openIriLink);

@@ -31,7 +31,21 @@ When navigating to the *Curation Page*, the procedure for opening projects and d
 The navigation within the document is also equivalent to <<sect_annotation>>.
 
 The table reflects the state of the document.
-A document can be *in-progress*, *finished*, *curation-in-progress* or *curation-finished*. 
+A document can be *in-progress*, *finished*, *curation-in-progress* or *curation-finished*.
+
+Whether a document is *ready* for curation is decided by the workload strategy, and the exact rule depends on the workload strategy configured for the project:
+
+* Under <<sect_matrix_workload,static assignment>>, a document is ready once every annotator has either *finished* or *locked* it.
+* Under <<sect_dynamic_workload,dynamic assignment>>, a document is ready once the required number of annotators (as configured in the dynamic workload settings) have marked it as *finished*.
+
+A single annotator finishing their work is therefore usually *not* enough to make the document ready - that depends on the strategy and its configuration.
+Once a document is ready, it reaches the *annotation-finished* state at the document level.
+
+Curation that has already been *started* may always be continued.
+So if the annotation data of a document you are already curating later drops below the ready threshold - for example because finished annotation documents were put back into progress or their annotators were removed from the project - you are not locked out of the document.
+In this situation, a warning badge (e.g. *1/3 incomplete*) is shown in the document header.
+Hovering over the badge explains how many annotators still need to finish (or lock) the document.
+The document remains fully editable - the badge only warns that you are curating incomplete data.
 
 == Split curation mode
 
@@ -66,6 +80,7 @@ When the last finished annotation for a document is reopened, you will be forced
 
 When a document is opened for the first time in the curation page, the application analyzes agreements and disagreements between annotators.
 All annotations on which all annotators agree are automatically copied to the *Annotation* pane. Any annotations on which the annotators disagree are skipped.
+If the automatic merge is disabled in the project settings, the *Annotation* pane starts out empty instead (see <<re-merging>>).
 
 The annotator's panes are color-coded according to their relation with the contents of the *Annotation* pane and according to the agreement status.
 The colors largely match the colors also used in the status over in the left sidebar.
@@ -92,11 +107,21 @@ NOTE: The upper *Annotation* pane that the curator uses to edit annotations is n
 |===
 
 **Left-click** on an annotation in one of the lower panels to merge it. This action copies the annotation to the upper panel. The merged annotation will turn green in the lower panel from which it was selected. If other annotators had a conflicting opinion, these will turn red in the lower panels of the respective annotators. 
+The merged annotation is also selected in the upper panel, so you can review or edit it right away in the annotation detail panel on the right.
+
+Hold kbd:[Shift] and **left-click** on an annotation in one of the lower panels to look at it without merging it.
+The annotation detail panel on the right then shows the annotator's annotation read-only, headed *Annotation by ... (read-only)*.
+This way you can, for example, check all feature values of an annotation or follow the link to a knowledge base entry before deciding whether to merge it.
+Your selection in the upper panel does not change.
+To get back to it, click *Clear* in the detail panel or select an annotation in the upper panel.
+This also works when the curation of the document has already been marked as finished.
 
 **Right-click** on an annotation in the lower panels to bring up a menu with additional options.
 
+* **Show details**: show the annotation read-only in the annotation detail panel, the same as holding kbd:[Shift] while clicking it.
 * **Merge all XXX**: merge all annotations of the given type from the selected annotator.
   Note that this overrides any annotations of the type which may previously have been merged or manually created in the upper panel.
+  Because this cannot be undone, you are asked to confirm it first.
 
 == Integrated curation mode
 
@@ -108,41 +133,39 @@ Overriding or accepting suggestions will typically hide alternative suggestions 
 It is currently not possible to reject an annotation in the integrated curation mode.
 So if you do not want to accept or override an annotation, just ignore it.
 
+To look at the annotation behind a suggestion without accepting it, **right-click** the suggestion and choose **Show details**.
+The annotation detail panel on the right then shows the annotation read-only, headed with the annotators who made it, e.g. *Annotation by anno1, anno2 (read-only)*.
+This way you can, for example, check all feature values or follow the link to a knowledge base entry before deciding whether to accept the suggestion.
+To get back to your own selection, click *Clear* in the detail panel or select an annotation in the document.
+
 In this mode, you can find a **Curation sidebar** on the left side of the page.
 In this sidebar, you can configure which annotators you want to see in the document view.
 If document metadata layers are configured in the project, you can curate document-level
 annotations in the **Document Metadata sidebar** in this mode.
-You can also restart the curation process for a document using the **Re-merge** button (see <<re-merging>>).
-
-// In this mode, you can select the target to which your curated annotations are added:
-// 
-// * **curation document**: this is also used as the target when curating on the curation page. If
-//  you choose this target, you will notice that the username in the info line above the annotation
-//  document changes to `CURATION_USER` while the curation session is in progress.
-// * **my document**: this option is available if the curator is also an annotator in the project. In
-//  this case, the annotators own document may be chosen as the curation target.
-
-// By setting the URL query parameter `curationTargetOwn=true`, the
-// curation target can be changed to the current users own document - if the user has the *annotator*
-// role in addition to the *curator* role.
-//
-// Example: `http://localhost:8080/p/PROJECT/curate/DOC-ID?curationTargetOwn=true`.
+You can also restart the curation process for a document using the **Re-merge** button in the action bar above the document (see <<re-merging>>).
 
 [#re-merging]
 == Re-merging
 
 When a document is first opened for curation, {product-name} performs an automatic pre-merge of the annotators' data into the curation document (see <<merging-strategies>>).
-The **Re-merge** button on the curation page allows you to run this automatic merge again at any time, for example after the annotators have changed their annotations or after you have changed the merge strategy.
+This only happens if the project setting **Auto-merge when starting to curate a document** is enabled (the default).
+Otherwise, the curation document starts out as the original document, without any of the annotators' annotations.
+The **Re-merge** button in the action bar of the curation page allows you to run this automatic merge again at any time, for example after the annotators have changed their annotations or after you have changed the merge strategy.
 
 The **Re-merge** dialog offers the following options:
 
+* **Merge from:** the annotators whose annotations are merged.
+  Only annotators whose annotations can be curated are offered, e.g. those who marked the document as finished.
+  All of them are selected initially.
+  **All annotators** selects all of them again, and **Sidebar selection** selects the annotators currently chosen in the **Curation sidebar**.
+  The choice only applies to this re-merge: it does not change which annotators the **Curation sidebar** shows.
 * **Discard already curated annotations:** controls what happens to annotations that are already present in the curation document when the re-merge is run.
 +
 --
 ** When *disabled* (the default), the existing curated annotations are kept.
    The auto-merge only fills in positions that have not been curated yet and leaves your existing decisions untouched.
    This is useful when you have already curated part of the document and only want to pull in newly agreed-upon annotations without losing your work.
-** When *enabled*, the curation document is cleared first and then fully recreated from the annotators' data.
+** When *enabled*, the curation document is re-created from the annotations of the selected annotators.
    Any annotations you have already curated are discarded.
    Because this is a destructive operation, you are asked to confirm it by typing the document name into a challenge field before it can be performed.
 --
