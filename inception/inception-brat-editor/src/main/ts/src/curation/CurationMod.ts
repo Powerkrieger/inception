@@ -37,10 +37,10 @@ export class CurationMod {
     onClick(evt: MouseEvent) {
         const target = evt.target as HTMLElement;
 
-        // Shift+click asks the server to show the annotation instead of merging it. Pages that do
-        // not support this ignore the flag and merge.
-        const showDetails = evt.shiftKey;
-        if (showDetails) {
+        // Shift+click - or Ctrl/Cmd+click - asks the server to show the annotation instead of
+        // merging it. Pages that do not support this ignore the flag and merge.
+        const showDetails = evt.shiftKey || evt.ctrlKey || evt.metaKey;
+        if (evt.shiftKey) {
             // Shift+click extends the browser's text selection
             window.getSelection()?.removeAllRanges();
         }
