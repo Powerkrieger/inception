@@ -152,6 +152,12 @@ public class SPARQLQueryBuilder
 
     private boolean labelImplicitlyRetrieved = false;
 
+    /**
+     * The subjects the query is restricted to by {@link #withIdentifier}, if any. Repeated inside
+     * each branch of a UNION lookup, see {@link #retrieveOptionalWithConstantPredicates}.
+     */
+    private RdfValue[] identifierValues;
+
     private boolean filterUsingRegex = true;
 
     enum Priority
@@ -848,8 +854,8 @@ public class SPARQLQueryBuilder
     {
         forceDisableFTS.add("identifier query");
 
-        addPattern(PRIMARY, new ValuesPattern(VAR_SUBJECT,
-                Arrays.stream(aIdentifiers).map(Rdf::iri).toArray(RdfValue[]::new)));
+        identifierValues = Arrays.stream(aIdentifiers).map(Rdf::iri).toArray(RdfValue[]::new);
+        addPattern(PRIMARY, new ValuesPattern(VAR_SUBJECT, identifierValues));
 
         return this;
     }
@@ -1481,8 +1487,17 @@ public class SPARQLQueryBuilder
     private void retrieveOptionalWithConstantPredicates(Collection<String> aProperties,
             Variable aVariable)
     {
+        // When the subjects are fixed (withIdentifier), repeat them inside every branch. QLever
+        // otherwise evaluates the UNION over the whole knowledge base before joining it with the
+        // few subjects asked for - e.g. ~3 s instead of ~70 ms for one IRI against 17M PubChem
+        // compounds - and every autocomplete request runs such a lookup (findExactIriMatches).
         var branches = aProperties.stream() //
-                .map(p -> (GraphPattern) VAR_SUBJECT.has(iri(p), aVariable)) //
+                .map(p -> {
+                    GraphPattern triple = VAR_SUBJECT.has(iri(p), aVariable);
+                    return identifierValues != null && aProperties.size() > 1
+                            ? and(new ValuesPattern(VAR_SUBJECT, identifierValues), triple)
+                            : triple;
+                }) //
                 .toArray(GraphPattern[]::new);
 
         var body = union(branches);

@@ -74,6 +74,35 @@ public class SPARQLQueryBuilderTest
                 .doesNotContain("LANGMATCHES").doesNotContain("LANG(");
     }
 
+    /**
+     * Looking up given identifiers, the match term is retrieved as a UNION over the label and the
+     * additional matching properties. Each branch must carry the identifiers itself: QLever
+     * otherwise evaluates the UNION over the whole knowledge base before joining it with the few
+     * subjects asked for, which takes seconds on a large one.
+     */
+    @Test
+    public void thatIdentifierLookupsPinTheSubjectsInEachUnionBranch() throws Exception
+    {
+        var kb = new KnowledgeBase();
+        initRdfsMapping(kb);
+        kb.setDefaultLanguage(null);
+        kb.setMaxResults(100);
+
+        var sut = new SPARQLQueryBuilder(kb, Mode.ITEM);
+        sut.withPrefLabelProperties(of("http://www.w3.org/2000/01/rdf-schema#label"));
+        sut.withAdditionalMatchingProperties(of("http://www.w3.org/2004/02/skos/core#altLabel"));
+        sut.withIdentifier("https://example.org/ns#c1");
+        sut.retrieveLabel();
+
+        var query = sut.selectQuery().getQueryString();
+
+        assertThat(query) //
+                .as("the identifier is bound once for the query and once per UNION branch") //
+                .containsPattern("(?s)UNION") //
+                .satisfies(q -> assertThat(q.split("<https://example.org/ns#c1>", -1)) //
+                        .hasSize(4));
+    }
+
     private SPARQLQueryBuilder markLogicBuilder()
     {
         var kb = new KnowledgeBase();
