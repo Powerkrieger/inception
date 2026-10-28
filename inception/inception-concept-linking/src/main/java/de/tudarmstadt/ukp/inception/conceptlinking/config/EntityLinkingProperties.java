@@ -17,6 +17,8 @@
  */
 package de.tudarmstadt.ukp.inception.conceptlinking.config;
 
+import java.time.Duration;
+
 public interface EntityLinkingProperties
 {
     int getCacheSize();
@@ -28,4 +30,8 @@ public interface EntityLinkingProperties
     int getCandidateDisplayLimit();
 
     int getSignatureQueryLimit();
+
+    Duration getFallbackTimeout();
+
+    double getFallbackDisplayShare();
 }

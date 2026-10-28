@@ -155,7 +155,7 @@ public abstract class ConceptFeatureEditor_ImplBase
                 }
             }
 
-            choices = clService.getLinkingInstancesInKBScope(traits.getRepositoryId(),
+            choices = clService.getLinkingInstancesInKBScope(traits.getRepositoryIdsInOrder(),
                     traits.getScope(), traits.getAllowedValueType(), finalInput, mention,
                     mentionBegin, cas, feat.getProject());
         }

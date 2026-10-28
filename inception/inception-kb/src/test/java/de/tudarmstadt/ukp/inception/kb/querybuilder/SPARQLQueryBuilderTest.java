@@ -119,6 +119,76 @@ public class SPARQLQueryBuilderTest
                 .containsPattern("(?s)OPTIONAL.*organismTag");
     }
 
+    @Test
+    public void thatNoShortLabelClauseIsEmittedWhenNoShortLabelPropertyIsConfigured()
+        throws Exception
+    {
+        var kb = new KnowledgeBase();
+        initRdfsMapping(kb);
+        kb.setMaxResults(100);
+
+        var sut = new SPARQLQueryBuilder(kb, Mode.ITEM);
+        sut.withPrefLabelProperties(of("http://www.w3.org/2000/01/rdf-schema#label"));
+        sut.withIdentifier("https://example.org/ns#P37231");
+        sut.retrieveLabel().retrieveShortLabel();
+
+        assertThat(sut.selectQuery().getQueryString()) //
+                .as("no short label variable is projected when no property is configured") //
+                .doesNotContain("?sl");
+    }
+
+    @Test
+    public void thatShortLabelIsRetrievedViaTheConfiguredProperty() throws Exception
+    {
+        var kb = new KnowledgeBase();
+        initRdfsMapping(kb);
+        kb.setMaxResults(100);
+        kb.setShortLabelIri("http://purl.uniprot.org/core/shortName");
+
+        var sut = new SPARQLQueryBuilder(kb, Mode.ITEM);
+        sut.withPrefLabelProperties(of("http://www.w3.org/2000/01/rdf-schema#label"));
+        sut.withIdentifier("https://example.org/ns#P37231");
+        sut.retrieveLabel().retrieveShortLabel();
+
+        var query = sut.selectQuery().getQueryString();
+
+        assertThat(query) //
+                .as("the short label is retrieved via the configured IRI as a constant predicate") //
+                .contains("<http://purl.uniprot.org/core/shortName> ?sl");
+        assertThat(query) //
+                .as("the lookup is optional - an item without a short label is still returned") //
+                .containsPattern("(?s)OPTIONAL.*shortName");
+    }
+
+    /**
+     * Looking up given identifiers, the match term is retrieved as a UNION over the label and the
+     * additional matching properties. Each branch must carry the identifiers itself: QLever
+     * otherwise evaluates the UNION over the whole knowledge base before joining it with the few
+     * subjects asked for, which takes seconds on a large one.
+     */
+    @Test
+    public void thatIdentifierLookupsPinTheSubjectsInEachUnionBranch() throws Exception
+    {
+        var kb = new KnowledgeBase();
+        initRdfsMapping(kb);
+        kb.setDefaultLanguage(null);
+        kb.setMaxResults(100);
+
+        var sut = new SPARQLQueryBuilder(kb, Mode.ITEM);
+        sut.withPrefLabelProperties(of("http://www.w3.org/2000/01/rdf-schema#label"));
+        sut.withAdditionalMatchingProperties(of("http://www.w3.org/2004/02/skos/core#altLabel"));
+        sut.withIdentifier("https://example.org/ns#c1");
+        sut.retrieveLabel();
+
+        var query = sut.selectQuery().getQueryString();
+
+        assertThat(query) //
+                .as("the identifier is bound once for the query and once per UNION branch") //
+                .containsPattern("(?s)UNION") //
+                .satisfies(q -> assertThat(q.split("<https://example.org/ns#c1>", -1)) //
+                        .hasSize(4));
+    }
+
     private SPARQLQueryBuilder markLogicBuilder()
     {
         var kb = new KnowledgeBase();

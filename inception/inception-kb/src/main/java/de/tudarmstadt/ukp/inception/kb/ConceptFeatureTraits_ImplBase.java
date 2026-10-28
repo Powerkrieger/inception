@@ -21,8 +21,10 @@ import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
@@ -39,6 +41,7 @@ public abstract class ConceptFeatureTraits_ImplBase
     private static final long serialVersionUID = 3351053348043107018L;
 
     private String repositoryId;
+    private @JsonInclude(NON_EMPTY) List<String> fallbackRepositoryIds = new ArrayList<>();
     private String scope;
     private ConceptFeatureValueType allowedValueType;
     private boolean retainSuggestionInfo = false;
@@ -57,6 +60,44 @@ public abstract class ConceptFeatureTraits_ImplBase
     public void setRepositoryId(String aKnowledgeBaseId)
     {
         repositoryId = aKnowledgeBaseId;
+    }
+
+    /**
+     * Further knowledge bases searched alongside the {@link #getRepositoryId() primary one}, in
+     * order. Their candidates are always ranked below those of the primary knowledge base. Only
+     * meaningful if a primary knowledge base is set - without one, all knowledge bases are searched
+     * anyway.
+     */
+    public List<String> getFallbackRepositoryIds()
+    {
+        return fallbackRepositoryIds;
+    }
+
+    public void setFallbackRepositoryIds(List<String> aRepositoryIds)
+    {
+        if (aRepositoryIds == null) {
+            fallbackRepositoryIds = new ArrayList<>();
+        }
+        else {
+            fallbackRepositoryIds = aRepositoryIds;
+        }
+    }
+
+    /**
+     * @return the primary knowledge base followed by the fallbacks, without duplicates; empty if no
+     *         primary knowledge base is set (i.e. any knowledge base may be used).
+     */
+    @JsonIgnore
+    public List<String> getRepositoryIdsInOrder()
+    {
+        if (repositoryId == null) {
+            return List.of();
+        }
+
+        var ids = new LinkedHashSet<String>();
+        ids.add(repositoryId);
+        ids.addAll(fallbackRepositoryIds);
+        return List.copyOf(ids);
     }
 
     public String getScope()

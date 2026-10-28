@@ -27,7 +27,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +42,7 @@ import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.inception.kb.KnowledgeBaseService;
 import de.tudarmstadt.ukp.inception.kb.config.KnowledgeBasePropertiesImpl;
 import de.tudarmstadt.ukp.inception.kb.graph.KBHandle;
+import de.tudarmstadt.ukp.inception.kb.model.KnowledgeBase;
 import de.tudarmstadt.ukp.inception.ui.kb.feature.ConceptLabelCache.Key;
 
 @ExtendWith(MockitoExtension.class)
@@ -63,6 +66,43 @@ public class ConceptLabelCacheTest
         feature = AnnotationFeature.builder() //
                 .withProject(project) //
                 .build();
+    }
+
+    @Test
+    public void getFromFirstKnowing_identifierUnknownToPrimary_isResolvedByFallback()
+        throws Exception
+    {
+        var primary = knowledgeBase("primary");
+        var fallback = knowledgeBase("fallback");
+        when(kbService.readHandle(primary, "cid:1")).thenReturn(Optional.empty());
+        when(kbService.readHandle(fallback, "cid:1"))
+                .thenReturn(Optional.of(new KBHandle("cid:1", "Glucosamine")));
+
+        var handle = sut.getFromFirstKnowing(feature, List.of("primary", "fallback"), "cid:1");
+
+        assertThat(handle.getName()).isEqualTo("Glucosamine");
+    }
+
+    @Test
+    public void getFromFirstKnowing_identifierKnownToPrimary_doesNotAskFallback() throws Exception
+    {
+        var primary = knowledgeBase("primary");
+        when(kbService.readHandle(primary, "chebi:1"))
+                .thenReturn(Optional.of(new KBHandle("chebi:1", "Glucose")));
+
+        var handle = sut.getFromFirstKnowing(feature, List.of("primary", "fallback"), "chebi:1");
+
+        assertThat(handle.getName()).isEqualTo("Glucose");
+        verify(kbService, never()).getKnowledgeBaseById(project, "fallback");
+    }
+
+    private KnowledgeBase knowledgeBase(String aRepositoryId)
+    {
+        var kb = new KnowledgeBase();
+        kb.setRepositoryId(aRepositoryId);
+        kb.setEnabled(true);
+        when(kbService.getKnowledgeBaseById(project, aRepositoryId)).thenReturn(Optional.of(kb));
+        return kb;
     }
 
     @Test

@@ -89,6 +89,28 @@ public interface ConceptLinkingService
             int aMentionBeginOffset, CAS aCas, Project aProject);
 
     /**
+     * Like
+     * {@link #getLinkingInstancesInKBScope(String, String, ConceptFeatureValueType, String, String, int, CAS, Project)},
+     * but searching a primary knowledge base and its fallbacks. All of them are queried in
+     * parallel. Each knowledge base's candidates are ranked on their own and listed in the order of
+     * the given IDs, so a fallback's candidates never outrank the primary knowledge base's.
+     * Fallbacks that do not answer within the configured timeout are left out.
+     *
+     * @param aRepositoryIds
+     *            the primary knowledge base followed by its fallbacks. If empty, all enabled
+     *            knowledge bases are searched and ranked together. Disabled or unknown knowledge
+     *            bases are skipped.
+     * @param aConceptScope
+     *            the search scope - applies to the primary knowledge base only, since a scope is a
+     *            concept from that knowledge base
+     * @see #getLinkingInstancesInKBScope(String, String, ConceptFeatureValueType, String, String,
+     *      int, CAS, Project)
+     */
+    List<KBHandle> getLinkingInstancesInKBScope(List<String> aRepositoryIds, String aConceptScope,
+            ConceptFeatureValueType aValueType, String aUserQuery, String aMention,
+            int aMentionBeginOffset, CAS aCas, Project aProject);
+
+    /**
      * Finds entities in a knowledge base according to a typed string using full text search.
      *
      * @param aKB

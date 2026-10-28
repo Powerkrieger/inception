@@ -17,13 +17,12 @@
  */
 package de.tudarmstadt.ukp.clarin.webanno.ui.curation.component;
 
+import static org.apache.wicket.event.Broadcast.BREADTH;
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState.FINISHED;
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState.IN_PROGRESS;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.MANAGER;
 import static de.tudarmstadt.ukp.inception.support.json.JSONUtil.toInterpretableJsonString;
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visibleWhen;
-import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.selectFsByAddr;
-import static java.util.Collections.emptyList;
 import static org.apache.wicket.markup.head.JavaScriptHeaderItem.forReference;
 
 import java.io.IOException;
@@ -33,9 +32,8 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.uima.cas.CAS;
-import org.apache.uima.cas.text.AnnotationFS;
 import org.apache.commons.lang3.Validate;
+import org.apache.uima.cas.CAS;
 import org.apache.wicket.ajax.AbstractDefaultAjaxBehavior;
 import org.apache.wicket.ajax.AjaxEventBehavior;
 import org.apache.wicket.ajax.AjaxRequestTarget;
@@ -49,7 +47,6 @@ import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
-import org.apache.wicket.model.Model;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 import org.slf4j.Logger;
@@ -58,10 +55,8 @@ import org.wicketstuff.jquery.ui.settings.JQueryUILibrarySettings;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
 import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
+import de.tudarmstadt.ukp.inception.support.uima.Range;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.comment.AnnotatorCommentDialogPanel;
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.exception.NotEditableException;
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.paging.NoPagingStrategy;
 import de.tudarmstadt.ukp.clarin.webanno.brat.annotation.BratRequestUtils;
 import de.tudarmstadt.ukp.clarin.webanno.brat.message.GetCollectionInformationResponse;
 import de.tudarmstadt.ukp.clarin.webanno.brat.render.BratSerializer;
@@ -83,18 +78,16 @@ import de.tudarmstadt.ukp.inception.diam.editor.lazydetails.LazyDetailsLookupSer
 import de.tudarmstadt.ukp.inception.diam.model.ajax.AjaxResponse;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.DefaultAjaxResponse;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
-import de.tudarmstadt.ukp.inception.editor.state.AnnotatorStateImpl;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditor;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import de.tudarmstadt.ukp.inception.rendering.request.RenderRequest;
-import de.tudarmstadt.ukp.inception.rendering.selection.Selection;
-import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
+import de.tudarmstadt.ukp.inception.rendering.selection.EditorContentReplacedEvent;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VRange;
-import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaStringResourceBehavior;
@@ -116,7 +109,6 @@ public abstract class BratSuggestionVisualizer
     private @SpringBean BratSchemaGenerator bratSchemaGenerator;
     private @SpringBean CurationRenderer curationRenderer;
     private @SpringBean BratSerializer bratSerializer;
-    private @SpringBean AnnotationSchemaService schemaService;
 
     private final WebMarkupContainer vis;
     private final ModalDialog modalDialog;
@@ -125,21 +117,16 @@ public abstract class BratSuggestionVisualizer
     private final LambdaStringResourceBehavior collProvider;
     private final LambdaStringResourceBehavior docProvider;
 
-    private final int position;
-
     private final DocumentEditorManager manager;
 
-    private InspectionContext inspectionContext;
-
     public BratSuggestionVisualizer(String aId, DocumentEditorManager aManager,
-            IModel<AnnotatorSegmentState> aModel, int aPosition)
+            IModel<AnnotatorSegmentState> aModel)
     {
         super(aId, aModel);
 
         Validate.notNull(aManager, "Document editor manager must be provided");
 
         manager = aManager;
-        position = aPosition;
 
         vis = new WebMarkupContainer("vis");
         vis.setOutputMarkupId(true);
@@ -215,7 +202,8 @@ public abstract class BratSuggestionVisualizer
             break;
         }
 
-        ((AnnotationPageBase) getPage()).actionLoadDocument(aTarget);
+        send(getPage(), BREADTH,
+                new EditorContentReplacedEvent(getModelObject().getAnnotatorState(), aTarget));
     }
 
     private AnnotationDocument getAnnotationDocument()
@@ -230,7 +218,7 @@ public abstract class BratSuggestionVisualizer
         Project project = aSegment.getAnnotatorState().getProject();
         if (project.isAnonymousCuration()
                 && !projectService.hasRole(userService.getCurrentUser(), project, MANAGER)) {
-            return "Anonymized annotator " + (position + 1);
+            return "Anonymized annotator " + (aSegment.getPosition() + 1);
         }
 
         return aSegment.getUser().getUiName();
@@ -278,6 +266,12 @@ public abstract class BratSuggestionVisualizer
     }
 
     @Override
+    public Optional<DocumentEditor> getHostingEditor()
+    {
+        return manager.getActiveEditor();
+    }
+
+    @Override
     public AnnotationActionHandler getActionHandler()
     {
         throw new UnsupportedOperationException(
@@ -285,8 +279,22 @@ public abstract class BratSuggestionVisualizer
     }
 
     @Override
+    public void actionLoadDocument(AjaxRequestTarget aTarget, int aFocus)
+    {
+        throw new UnsupportedOperationException(
+                "This editor is a passive viewer and does not load documents.");
+    }
+
+    @Override
+    public void actionJumpTo(AjaxRequestTarget aTarget, int aBegin, int aEnd,
+            List<VRange> aAdditionalPingRanges)
+    {
+        // Scrolling is not supported - this viewer always shows the whole segment
+    }
+
+    @Override
     public void actionShowSelectedDocument(AjaxRequestTarget aTarget, SourceDocument aDocument,
-            int aBegin, int aEnd, List<VRange> aAdditionalPingRanges)
+            AnnotationSet aDataOwner, Range aRange, List<VRange> aAdditionalPingRanges)
     {
         // Selection of annotations is not supported
     }
@@ -409,35 +417,6 @@ public abstract class BratSuggestionVisualizer
 
     protected abstract void onClientEvent(AjaxRequestTarget aTarget) throws Exception;
 
-    /**
-     * Show the given annotation of this annotator in the annotation detail panel without merging
-     * it. The detail panel follows the active editor context, so this activates a read-only context
-     * bound to this annotator's annotations.
-     *
-     * @param aTarget
-     *            the AJAX target
-     * @param aVid
-     *            the VID of the annotation in this annotator's CAS
-     * @throws IOException
-     *             if there was an I/O-level problem
-     * @throws AnnotationException
-     *             if there was an annotation-level problem
-     */
-    public void actionInspect(AjaxRequestTarget aTarget, VID aVid)
-        throws IOException, AnnotationException
-    {
-        if (inspectionContext == null) {
-            inspectionContext = new InspectionContext();
-        }
-
-        inspectionContext.actionSelect(aTarget, aVid);
-    }
-
-    static boolean isInspectionContext(DiamContext aContext)
-    {
-        return aContext instanceof InspectionContext;
-    }
-
     private final class CurationLazyDetailsHandler
         extends EditorAjaxRequestHandlerBase
         implements Serializable
@@ -459,7 +438,7 @@ public abstract class BratSuggestionVisualizer
 
                 var context = aRequest.getContext();
                 var state = context.getViewState();
-                var result = lazyDetailsLookupService.lookupLazyDetails(request, paramId,
+                var result = lazyDetailsLookupService.lookupLazyDetails(context, request, paramId,
                         context::getEditorCas, state.getDocument(), getModelObject().getUser(),
                         state.getWindowBeginOffset(), state.getWindowEndOffset());
                 attachResponse(aTarget, aRequest, toInterpretableJsonString(result));
@@ -500,216 +479,6 @@ public abstract class BratSuggestionVisualizer
         public boolean accepts(DiamRequest aRequest)
         {
             return true;
-        }
-    }
-
-    /**
-     * Read-only editor context through which the annotation detail panel shows an annotation of
-     * this annotator. It carries its own {@link AnnotatorState} so that selecting an annotation
-     * here does not touch the curator's selection, and it rejects all mutations - annotations are
-     * accepted by clicking them, which merges them into the curated document.
-     */
-    final class InspectionContext
-        implements DiamContext, AnnotationActionHandler, Serializable
-    {
-        private static final long serialVersionUID = 2311425400236521472L;
-
-        private final IModel<AnnotatorState> stateModel = new Model<>();
-
-        private AnnotatorState curatorState()
-        {
-            return BratSuggestionVisualizer.this.getModelObject().getAnnotatorState();
-        }
-
-        private Optional<DiamContext> curatorContext()
-        {
-            var curatorState = curatorState();
-            return manager.findEditorFor(curatorState.getDocument(), curatorState.getDataOwner());
-        }
-
-        /**
-         * Mirror the curator's view configuration (layers, preferences, constraints) so that the
-         * detail panel shows the same features the curator would see after merging.
-         */
-        private AnnotatorState newState()
-        {
-            var curatorState = curatorState();
-
-            var state = new AnnotatorStateImpl();
-            state.setUser(BratSuggestionVisualizer.this.getModelObject().getUser());
-            state.setPagingStrategy(new NoPagingStrategy());
-            state.setProject(curatorState.getProject());
-            state.setDocument(curatorState.getDocument(), emptyList());
-            state.setAllAnnotationLayers(curatorState.getAllAnnotationLayers());
-            state.setAnnotationLayers(curatorState.getAnnotationLayers());
-            state.setPreferences(curatorState.getPreferences());
-            state.setConstraints(curatorState.getConstraints());
-            return state;
-        }
-
-        @Override
-        public IModel<AnnotatorState> getStateModel()
-        {
-            return stateModel;
-        }
-
-        @Override
-        public CAS getEditorCas() throws IOException
-        {
-            return BratSuggestionVisualizer.this.getEditorCas();
-        }
-
-        @Override
-        public AnnotationActionHandler getActionHandler()
-        {
-            return this;
-        }
-
-        @Override
-        public boolean isEditor()
-        {
-            return false;
-        }
-
-        @Override
-        public DocumentEditorManager getDocumentEditorManager()
-        {
-            return manager;
-        }
-
-        @Override
-        public void ensureIsEditable() throws AnnotationException
-        {
-            throw new NotEditableException("The annotations of annotators cannot be edited. "
-                    + "Click the annotation to merge it into the curated document.");
-        }
-
-        @Override
-        public void actionSelect(AjaxRequestTarget aTarget, VID aVid)
-            throws IOException, AnnotationException
-        {
-            // Slot arcs point to their host annotation - that is the one we show
-            var vid = new VID(aVid.getId());
-            if (!(selectFsByAddr(getEditorCas(), vid.getId()) instanceof AnnotationFS annoFs)) {
-                return;
-            }
-
-            // Start from a fresh state on every selection so that we pick up any changes to the
-            // curator's layer configuration since the last inspection
-            stateModel.setObject(newState());
-            stateModel.getObject().setSelection(
-                    schemaService.findAdapter(getProject(), annoFs).select(vid, annoFs));
-
-            actionLoadSelectedAnnotationDetails(aTarget);
-        }
-
-        @Override
-        public void actionLoadSelectedAnnotationDetails(AjaxRequestTarget aTarget)
-            throws AnnotationException
-        {
-            // If this context was already active, the detail panel has picked up the new selection
-            // from the selection change event. Otherwise, activating it makes the panel load it.
-            activate(aTarget);
-
-            // Pages with a single fixed editor context (e.g. the legacy curation page) ignore the
-            // activation, so the detail panel would never show the annotation.
-            if (manager.getActiveContext().filter(context -> context == this).isEmpty()) {
-                throw new AnnotationException(
-                        "Inspecting annotations is not supported on this page.");
-            }
-        }
-
-        @Override
-        public void actionSelectAndJump(AjaxRequestTarget aTarget, VID aVid)
-            throws IOException, AnnotationException
-        {
-            actionSelect(aTarget, aVid);
-
-            if (selectFsByAddr(getEditorCas(), aVid.getId()) instanceof AnnotationFS annoFs) {
-                actionJump(aTarget, annoFs.getBegin(), annoFs.getEnd());
-            }
-        }
-
-        @Override
-        public void actionJump(AjaxRequestTarget aTarget, int aBegin, int aEnd)
-            throws IOException, AnnotationException
-        {
-            // The annotator panes follow the curator's viewport, so scrolling happens there
-            var curatorContext = curatorContext();
-            if (curatorContext.isPresent()) {
-                curatorContext.get().getActionHandler().actionJump(aTarget, aBegin, aEnd);
-            }
-        }
-
-        @Override
-        public void actionShowSelectedDocument(AjaxRequestTarget aTarget, SourceDocument aDocument,
-                int aBegin, int aEnd)
-            throws IOException, AnnotationException
-        {
-            actionShowSelectedDocument(aTarget, aDocument, aBegin, aEnd, null);
-        }
-
-        @Override
-        public void actionShowSelectedDocument(AjaxRequestTarget aTarget, SourceDocument aDocument,
-                int aBegin, int aEnd, List<VRange> aAdditionalPingRanges)
-            throws IOException, AnnotationException
-        {
-            var curatorContext = curatorContext();
-            if (curatorContext.isPresent()) {
-                curatorContext.get().actionShowSelectedDocument(aTarget, aDocument, aBegin, aEnd,
-                        aAdditionalPingRanges);
-            }
-        }
-
-        @Override
-        public void actionRefreshDocument(AjaxRequestTarget aTarget)
-        {
-            curatorContext().ifPresent(context -> context.actionRefreshDocument(aTarget));
-        }
-
-        @Override
-        public void actionClear(AjaxRequestTarget aTarget)
-        {
-            stateModel.getObject().setSelection(Selection.unselected());
-        }
-
-        @Override
-        public void actionDelete(AjaxRequestTarget aTarget) throws AnnotationException
-        {
-            ensureIsEditable();
-        }
-
-        @Override
-        public void actionReverse(AjaxRequestTarget aTarget) throws AnnotationException
-        {
-            ensureIsEditable();
-        }
-
-        @Override
-        public void actionFillSlot(AjaxRequestTarget aTarget, int aSlotFillerBegin,
-                int aSlotFillerEnd)
-            throws AnnotationException
-        {
-            ensureIsEditable();
-        }
-
-        @Override
-        public void actionFillSlot(AjaxRequestTarget aTarget, VID aExistingSlotFillerId)
-            throws AnnotationException
-        {
-            ensureIsEditable();
-        }
-
-        @Override
-        public void writeEditorCas() throws AnnotationException
-        {
-            ensureIsEditable();
-        }
-
-        @Override
-        public void writeEditorCas(CAS aCas) throws AnnotationException
-        {
-            ensureIsEditable();
         }
     }
 }

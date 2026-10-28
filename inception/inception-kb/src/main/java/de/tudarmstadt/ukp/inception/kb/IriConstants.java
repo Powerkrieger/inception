@@ -51,6 +51,7 @@ public class IriConstants
     public static final String PREFIX_GRAPHDB = "http://www.ontotext.com/";
     public static final String PREFIX_QLEVER = "http://qlever.cs.uni-freiburg.de/builtin-functions/";
     public static final String PREFIX_MARKLOGIC = "http://marklogic.com/cts#";
+    public static final String PREFIX_UNIPROT_CORE = "http://purl.uniprot.org/core/";
 
     public static final String UKP_WIKIDATA_SPARQL_ENDPOINT = "http://knowledgebase.ukp.informatik.tu-darmstadt.de:8890/sparql";
     public static final Set<String> IMPLICIT_NAMESPACES = Set.of(RDF.NAMESPACE, RDFS.NAMESPACE,
@@ -98,6 +99,8 @@ public class IriConstants
     public static final IRI FTS_MARKLOGIC;
     public static final IRI FTS_NONE;
 
+    public static final IRI UNIPROT_SHORT_NAME;
+
     public static final List<IRI> CLASS_IRIS;
     public static final List<IRI> SUBCLASS_IRIS;
     public static final List<IRI> TYPE_IRIS;
@@ -109,10 +112,13 @@ public class IriConstants
     public static final List<IRI> PROPERTY_DESCRIPTION_IRIS;
     public static final List<IRI> DEPRECATION_PROPERTY_IRIS;
     public static final List<IRI> TAG_IRIS;
+    public static final List<IRI> SHORT_LABEL_IRIS;
     public static final List<IRI> FTS_IRIS;
 
     static {
         var vf = SimpleValueFactory.getInstance();
+
+        UNIPROT_SHORT_NAME = vf.createIRI(PREFIX_UNIPROT_CORE, "shortName");
 
         WIKIDATA_CLASS = vf.createIRI(PREFIX_WIKIDATA_ENTITY, "Q35120");
         WIKIDATA_SUBCLASS = vf.createIRI(PREFIX_WIKIDATA_DIRECT, "P279");
@@ -147,6 +153,8 @@ public class IriConstants
         // knowledge base is expected to name whatever property carries the distinction it wants
         // surfaced (e.g. an organism for a KB spanning several species).
         TAG_IRIS = asList(RDFS.COMMENT, SKOS.NOTATION);
+        // Likewise only a suggestion - UniProt's own property for a protein's short name.
+        SHORT_LABEL_IRIS = asList(UNIPROT_SHORT_NAME);
         FTS_IRIS = asList(FTS_FUSEKI, FTS_BLAZEGRAPH, FTS_GRAPHDB, FTS_VIRTUOSO, FTS_WIKIDATA,
                 FTS_RDF4J_LUCENE, FTS_STARDOG, FTS_ALLEGRO_GRAPH, FTS_QLEVER, FTS_MARKLOGIC);
     }

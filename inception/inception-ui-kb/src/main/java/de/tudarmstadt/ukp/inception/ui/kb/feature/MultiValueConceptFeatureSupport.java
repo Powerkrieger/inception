@@ -352,7 +352,8 @@ public class MultiValueConceptFeatureSupport
     private KBHandle getConcept(AnnotationFeature aFeature, MultiValueConceptFeatureTraits traits,
             String identifier)
     {
-        var chbk = labelCache.get(aFeature, traits.getRepositoryId(), identifier);
+        var chbk = labelCache.getFromFirstKnowing(aFeature, traits.getRepositoryIdsInOrder(),
+                identifier);
         var clone = new KBHandle(chbk.getIdentifier(), chbk.getUiLabel(), chbk.getDescription(),
                 chbk.getLanguage());
         clone.setKB(chbk.getKB());
@@ -402,7 +403,9 @@ public class MultiValueConceptFeatureSupport
         }
 
         var traits = readTraits(aFeature);
-        return labelCache.get(aFeature, traits.getRepositoryId(), aIdentifier).getUiLabel();
+        return labelCache
+                .getFromFirstKnowing(aFeature, traits.getRepositoryIdsInOrder(), aIdentifier)
+                .getShortUiLabel();
     }
 
     @Override
@@ -418,7 +421,7 @@ public class MultiValueConceptFeatureSupport
         }
 
         return handles.stream() //
-                .map(KBHandle::getUiLabel) //
+                .map(KBHandle::getShortUiLabel) //
                 .toList();
     }
 

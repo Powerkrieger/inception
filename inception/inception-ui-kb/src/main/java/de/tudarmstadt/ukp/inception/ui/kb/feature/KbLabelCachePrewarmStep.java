@@ -20,8 +20,10 @@ package de.tudarmstadt.ukp.inception.ui.kb.feature;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.apache.uima.cas.text.AnnotationPredicates.overlapping;
 
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.uima.cas.FeatureStructure;
@@ -34,6 +36,7 @@ import org.springframework.core.annotation.Order;
 
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
+import de.tudarmstadt.ukp.inception.kb.graph.KBHandle;
 import de.tudarmstadt.ukp.inception.rendering.pipeline.RenderStep;
 import de.tudarmstadt.ukp.inception.rendering.request.RenderRequest;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VDocument;
@@ -105,9 +108,10 @@ public class KbLabelCachePrewarmStep
         var windowEnd = Math.min(documentText.length(), aRequest.getWindowEndOffset());
 
         var keys = new LinkedHashSet<Key>();
+        var fallbacks = new HashMap<AnnotationFeature, List<String>>();
 
         for (var layer : aRequest.getVisibleLayers()) {
-            collectKeysForLayer(cas, layer, windowBegin, windowEnd, aRequest, keys);
+            collectKeysForLayer(cas, layer, windowBegin, windowEnd, aRequest, keys, fallbacks);
         }
 
         if (keys.isEmpty()) {
@@ -115,15 +119,44 @@ public class KbLabelCachePrewarmStep
         }
 
         var start = System.currentTimeMillis();
-        labelCache.getAll(keys);
+        var unknown = unknownKeys(labelCache.getAll(keys));
+        // Identifiers the primary knowledge base doesn't know are looked up in the feature's
+        // fallback knowledge bases - also in bulk, one round per fallback
+        for (var round = 0; !unknown.isEmpty(); round++) {
+            var next = new LinkedHashSet<Key>();
+            for (var key : unknown) {
+                var featureFallbacks = fallbacks.getOrDefault(key.getAnnotationFeature(),
+                        List.of());
+                if (round < featureFallbacks.size()) {
+                    next.add(Key.of(key.getAnnotationFeature(), featureFallbacks.get(round),
+                            key.getLabel()));
+                }
+            }
+            if (next.isEmpty()) {
+                break;
+            }
+            unknown = unknownKeys(labelCache.getAll(next));
+        }
         if (LOG.isTraceEnabled()) {
             LOG.trace("Prewarmed {} concept-label keys in {}ms", keys.size(),
                     System.currentTimeMillis() - start);
         }
     }
 
+    /**
+     * Unknown identifiers come back as identifier-only handles (see {@link ConceptLabelCache}).
+     */
+    private static List<Key> unknownKeys(Map<Key, KBHandle> aHandles)
+    {
+        return aHandles.entrySet().stream() //
+                .filter(e -> e.getValue().getName() == null) //
+                .map(Map.Entry::getKey) //
+                .toList();
+    }
+
     private void collectKeysForLayer(org.apache.uima.cas.CAS aCas, AnnotationLayer aLayer,
-            int aWindowBegin, int aWindowEnd, RenderRequest aRequest, Set<Key> aOut)
+            int aWindowBegin, int aWindowEnd, RenderRequest aRequest, Set<Key> aOut,
+            Map<AnnotationFeature, List<String>> aFallbacks)
     {
         // Resolve repositoryId once per feature — readTraits deserializes JSON, so doing it per
         // FS would scale with the document size.
@@ -134,6 +167,12 @@ public class KbLabelCachePrewarmStep
                 .toList();
         if (featureInfos.isEmpty()) {
             return;
+        }
+
+        for (var info : featureInfos) {
+            if (!info.fallbackRepositoryIds().isEmpty()) {
+                aFallbacks.put(info.feature(), info.fallbackRepositoryIds());
+            }
         }
 
         var type = aCas.getTypeSystem().getType(aLayer.getName());
@@ -156,12 +195,14 @@ public class KbLabelCachePrewarmStep
     private FeatureInfo toFeatureInfo(AnnotationFeature aFeature)
     {
         if (conceptFeatureSupport.accepts(aFeature)) {
-            return new FeatureInfo(aFeature,
-                    conceptFeatureSupport.readTraits(aFeature).getRepositoryId(), false);
+            var traits = conceptFeatureSupport.readTraits(aFeature);
+            return new FeatureInfo(aFeature, traits.getRepositoryId(),
+                    fallbacksOf(traits.getRepositoryIdsInOrder()), false);
         }
         if (multiValueConceptFeatureSupport.accepts(aFeature)) {
-            return new FeatureInfo(aFeature,
-                    multiValueConceptFeatureSupport.readTraits(aFeature).getRepositoryId(), true);
+            var traits = multiValueConceptFeatureSupport.readTraits(aFeature);
+            return new FeatureInfo(aFeature, traits.getRepositoryId(),
+                    fallbacksOf(traits.getRepositoryIdsInOrder()), true);
         }
         return null;
     }
@@ -169,6 +210,13 @@ public class KbLabelCachePrewarmStep
     private void extractKeys(FeatureInfo aInfo, FeatureStructure aFs, Set<Key> aOut)
     {
         var feature = aInfo.feature();
+
+        // A CAS opened read-only is not upgraded to the project's type system, so it can lack
+        // a feature added (or renamed) since it was last saved - it has no values for it then
+        if (aFs.getType().getFeatureByBaseName(feature.getName()) == null) {
+            return;
+        }
+
         if (!aInfo.isMulti()) {
             var id = FSUtil.getFeature(aFs, feature.getName(), String.class);
             if (isNotBlank(id)) {
@@ -189,5 +237,14 @@ public class KbLabelCachePrewarmStep
         }
     }
 
-    private record FeatureInfo(AnnotationFeature feature, String repositoryId, boolean isMulti) {}
+    private static List<String> fallbacksOf(List<String> aRepositoryIdsInOrder)
+    {
+        return aRepositoryIdsInOrder.size() > 1
+                ? aRepositoryIdsInOrder.subList(1, aRepositoryIdsInOrder.size())
+                : List.of();
+    }
+
+    private record FeatureInfo(AnnotationFeature feature, String repositoryId,
+            List<String> fallbackRepositoryIds, boolean isMulti)
+    {}
 }

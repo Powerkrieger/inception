@@ -152,6 +152,12 @@ public class SPARQLQueryBuilder
 
     private boolean labelImplicitlyRetrieved = false;
 
+    /**
+     * The subjects the query is restricted to by {@link #withIdentifier}, if any. Repeated inside
+     * each branch of a UNION lookup, see {@link #retrieveOptionalWithConstantPredicates}.
+     */
+    private RdfValue[] identifierValues;
+
     private boolean filterUsingRegex = true;
 
     enum Priority
@@ -621,6 +627,11 @@ public class SPARQLQueryBuilder
         return VAR_TAG;
     }
 
+    private Projectable getShortLabelProjection()
+    {
+        return VAR_SHORT_LABEL;
+    }
+
     boolean noResult()
     {
         return returnEmptyResult = true;
@@ -853,8 +864,8 @@ public class SPARQLQueryBuilder
     {
         forceDisableFTS.add("identifier query");
 
-        addPattern(PRIMARY, new ValuesPattern(VAR_SUBJECT,
-                Arrays.stream(aIdentifiers).map(Rdf::iri).toArray(RdfValue[]::new)));
+        identifierValues = Arrays.stream(aIdentifiers).map(Rdf::iri).toArray(RdfValue[]::new);
+        addPattern(PRIMARY, new ValuesPattern(VAR_SUBJECT, identifierValues));
 
         return this;
     }
@@ -1478,6 +1489,22 @@ public class SPARQLQueryBuilder
         return this;
     }
 
+    @Override
+    public SPARQLQueryOptionalElements retrieveShortLabel()
+    {
+        // Optional like the tag - see retrieveTag() for why nothing is added when unset. An item
+        // with several short names yields one row per value and an arbitrary one survives.
+        if (!kb.supportsShortLabel()) {
+            return this;
+        }
+
+        projections.add(getShortLabelProjection());
+
+        retrieveOptionalWithLanguage(iri(kb.getShortLabelIri()), VAR_SHORT_LABEL);
+
+        return this;
+    }
+
     private void retrieveOptionalWithLanguage(RdfPredicate aProperty, Variable aVariable)
     {
         var triple = VAR_SUBJECT.has(aProperty, aVariable);
@@ -1506,8 +1533,17 @@ public class SPARQLQueryBuilder
     private void retrieveOptionalWithConstantPredicates(Collection<String> aProperties,
             Variable aVariable)
     {
+        // When the subjects are fixed (withIdentifier), repeat them inside every branch. QLever
+        // otherwise evaluates the UNION over the whole knowledge base before joining it with the
+        // few subjects asked for - e.g. ~3 s instead of ~70 ms for one IRI against 17M PubChem
+        // compounds - and every autocomplete request runs such a lookup (findExactIriMatches).
         var branches = aProperties.stream() //
-                .map(p -> (GraphPattern) VAR_SUBJECT.has(iri(p), aVariable)) //
+                .map(p -> {
+                    GraphPattern triple = VAR_SUBJECT.has(iri(p), aVariable);
+                    return identifierValues != null && aProperties.size() > 1
+                            ? and(new ValuesPattern(VAR_SUBJECT, identifierValues), triple)
+                            : triple;
+                }) //
                 .toArray(GraphPattern[]::new);
 
         var body = union(branches);
@@ -1756,6 +1792,7 @@ public class SPARQLQueryBuilder
                 extractScore(handle, bindings);
                 extractDeprecation(handle, bindings);
                 extractTag(handle, bindings);
+                extractShortLabel(handle, bindings);
 
                 handles.add(handle);
             }
@@ -1914,6 +1951,14 @@ public class SPARQLQueryBuilder
             aTargetHandle.setDescription(descriptionBinding.getValue().stringValue());
             aDescriptionLanguages.put(aTargetHandle,
                     extractLanguage(descriptionBinding).orElse(null));
+        }
+    }
+
+    private void extractShortLabel(KBHandle aTargetHandle, BindingSet aSourceBindings)
+    {
+        var shortLabel = aSourceBindings.getBinding(VAR_SHORT_LABEL_NAME);
+        if (shortLabel != null) {
+            aTargetHandle.setShortLabel(shortLabel.getValue().stringValue());
         }
     }
 

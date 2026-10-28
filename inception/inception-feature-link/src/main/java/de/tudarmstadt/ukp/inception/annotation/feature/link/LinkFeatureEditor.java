@@ -350,21 +350,15 @@ public class LinkFeatureEditor
 
         // Add a new empty slot with the specified role
         content.add(new LambdaAjaxLink("add", this::actionAdd) //
-                .add(visibleWhen(() -> !isInUpdateMode() && isEditable())));
+                .add(visibleWhen(() -> !isInUpdateMode())));
 
         // Allows user to update slot
         content.add(new LambdaAjaxLink("set", this::actionSet) //
-                .add(visibleWhen(
-                        () -> traits.isEnableRoleLabels() && isInUpdateMode() && isEditable())));
+                .add(visibleWhen(() -> traits.isEnableRoleLabels() && isInUpdateMode())));
 
         // Add a new empty slot with the specified role
         content.add(new LambdaAjaxLink("del", this::actionDel) //
-                .add(visibleWhen(() -> isInUpdateMode() && isEditable())));
-    }
-
-    private boolean isEditable()
-    {
-        return actionHandler == null || actionHandler.isEditable();
+                .add(visibleWhen(() -> isInUpdateMode())));
     }
 
     private boolean isInUpdateMode()
@@ -630,11 +624,6 @@ public class LinkFeatureEditor
 
     private void actionToggleArmedState(AjaxRequestTarget aTarget, Item<LinkWithRoleModel> aItem)
     {
-        // Arming a slot is the first step of filling it - pointless if the slots cannot be filled
-        if (!isEditable()) {
-            return;
-        }
-
         var state = stateModel.getObject();
 
         if (state.isArmedSlot(getModelObject(), aItem.getIndex())) {

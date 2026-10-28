@@ -19,6 +19,7 @@ package de.tudarmstadt.ukp.inception.kb;
 
 import static de.tudarmstadt.ukp.inception.kb.RdfImportParserConfigs.doctypeTolerantParserConfig;
 import static de.tudarmstadt.ukp.inception.kb.RepositoryType.LOCAL;
+import static de.tudarmstadt.ukp.inception.kb.RepositoryType.REMOTE;
 import static de.tudarmstadt.ukp.inception.kb.http.PerThreadSslCheckingHttpClientUtils.restoreSslVerification;
 import static de.tudarmstadt.ukp.inception.kb.http.PerThreadSslCheckingHttpClientUtils.skipCertificateChecks;
 import static de.tudarmstadt.ukp.inception.kb.querybuilder.SPARQLQueryBuilder.DEFAULT_LIMIT;
@@ -38,6 +39,7 @@ import static java.util.Locale.ROOT;
 import static java.util.stream.Collectors.toList;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.apache.commons.lang3.StringUtils.isNotEmpty;
+import static org.apache.commons.lang3.StringUtils.normalizeSpace;
 import static org.apache.commons.lang3.StringUtils.substringAfter;
 import static org.apache.commons.lang3.StringUtils.substringBefore;
 import static org.apache.commons.lang3.Strings.CS;
@@ -164,6 +166,8 @@ import de.tudarmstadt.ukp.inception.security.client.auth.oauth.OAuthClientCreden
 import de.tudarmstadt.ukp.inception.security.client.auth.oauth.OAuthSessionImpl;
 import de.tudarmstadt.ukp.inception.support.SettingsUtil;
 import de.tudarmstadt.ukp.inception.support.StopWatch;
+import de.tudarmstadt.ukp.inception.support.config.InstanceMetadataProperties;
+import de.tudarmstadt.ukp.inception.support.config.InstanceMetadataPropertiesImpl;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
 import de.tudarmstadt.ukp.inception.support.wicket.PipedStreamResource;
 import jakarta.persistence.EntityManager;
@@ -201,7 +205,9 @@ public class KnowledgeBaseServiceImpl
 
     private final MemoryOAuthSessionRepository<KnowledgeBase> oAuthSessionRepository;
 
-    @Value("spring.application.name")
+    private InstanceMetadataProperties instanceMetadataProperties = new InstanceMetadataPropertiesImpl();
+
+    @Value("${spring.application.name:INCEpTION}")
     private String applicationName;
 
     @Autowired
@@ -244,8 +250,8 @@ public class KnowledgeBaseServiceImpl
         }
 
         repoManager = RepositoryProvider.getRepositoryManager(kbRepositoriesRoot);
-        repoManager.setHttpClient(PerThreadSslCheckingHttpClientUtils
-                .newPerThreadSslCheckingHttpClientBuilder().build());
+        repoManager.setHttpClient(
+                PerThreadSslCheckingHttpClientUtils.newPerThreadSslCheckingHttpClient());
 
         BOOT_LOG.info("Knowledge base repository path: {}", kbRepositoriesRoot);
     }
@@ -273,6 +279,14 @@ public class KnowledgeBaseServiceImpl
         entityManager = aEntityManager;
     }
 
+    public KnowledgeBaseServiceImpl(RepositoryProperties aRepoProperties,
+            KnowledgeBaseProperties aKBProperties,
+            InstanceMetadataProperties aInstanceMetadataProperties, EntityManager aEntityManager)
+    {
+        this(aRepoProperties, aKBProperties, aEntityManager);
+        instanceMetadataProperties = aInstanceMetadataProperties;
+    }
+
     @EventListener({ ContextRefreshedEvent.class })
     void onContextRefreshed()
     {
@@ -289,6 +303,9 @@ public class KnowledgeBaseServiceImpl
 
             if (LOCAL == kb.getType()) {
                 reconfigureLocalKnowledgeBase(kb);
+            }
+            else if (REMOTE == kb.getType()) {
+                migrateUrlEmbeddedCredentials(kb);
             }
         }
 
@@ -717,7 +734,14 @@ public class KnowledgeBaseServiceImpl
     @Override
     public RepositoryImplConfig getRemoteConfig(String url)
     {
-        return new SPARQLRepositoryConfig(url);
+        var split = splitUrlUserInfo(url);
+        if (split.userInfo() != null) {
+            LOG.warn(
+                    "URL [{}] contains embedded credentials. Stripping them - configure "
+                            + "authentication via the KB auth-traits UI instead.",
+                    split.cleanUrl());
+        }
+        return new SPARQLRepositoryConfig(split.cleanUrl());
     }
 
     @Override
@@ -741,8 +765,7 @@ public class KnowledgeBaseServiceImpl
         if (repo instanceof SPARQLRepository sparqlRepo) {
             var sparqlRepoConfig = (SPARQLRepositoryConfig) getKnowledgeBaseConfig(kb);
 
-            addAdditionalHeaders(sparqlRepo, Map.of("User-Agent", applicationName + "/"
-                    + getVersionProperties().getProperty(PROP_VERSION, "unknown")));
+            addAdditionalHeaders(sparqlRepo, Map.of("User-Agent", getUserAgent()));
 
             applyBasicHttpAuthenticationConfigurationFromUrl(sparqlRepoConfig, sparqlRepo);
             var traits = readTraits(kb);
@@ -834,6 +857,25 @@ public class KnowledgeBaseServiceImpl
                 Map.of(HttpHeaders.AUTHORIZATION, "Bearer " + session.getAccessToken()));
     }
 
+    /**
+     * Builds the user agent following the Wikimedia User-Agent policy:
+     * {@code <client>/<version> (<contact>)}.
+     */
+    private String getUserAgent()
+    {
+        var userAgent = new StringBuilder();
+        userAgent.append(applicationName);
+        userAgent.append('/');
+        userAgent.append(getVersionProperties().getProperty(PROP_VERSION, "unknown"));
+
+        var contact = normalizeSpace(instanceMetadataProperties.getOperatorContact());
+        if (isNotBlank(contact)) {
+            userAgent.append(" (").append(contact).append(')');
+        }
+
+        return userAgent.toString();
+    }
+
     private void addAdditionalHeaders(SPARQLRepository aSparqlRepo, Map<String, String> aHeaders)
     {
         var existingHeaders = aSparqlRepo.getAdditionalHttpHeaders();
@@ -850,24 +892,99 @@ public class KnowledgeBaseServiceImpl
     private void applyBasicHttpAuthenticationConfigurationFromUrl(
             SPARQLRepositoryConfig sparqlRepoConfig, SPARQLRepository sparqlRepo)
     {
-        var uri = URI.create(sparqlRepoConfig.getQueryEndpointUrl());
-        var userInfo = uri.getUserInfo();
-        if (isNotBlank(userInfo)) {
-            userInfo = userInfo.trim();
-            String username;
-            String password;
-            if (userInfo.contains(":")) {
-                username = substringBefore(userInfo, ":");
-                password = substringAfter(userInfo, ":");
-            }
-            else {
-                username = userInfo;
-                password = "";
-            }
-
-            sparqlRepo.setUsernameAndPassword(username, password);
+        var split = splitUrlUserInfo(sparqlRepoConfig.getQueryEndpointUrl());
+        if (split.user() != null) {
+            sparqlRepo.setUsernameAndPassword(split.user(), split.password());
         }
     }
+
+    /**
+     * Migrates URL-embedded credentials ({@code http://user:pass@host/...}) on a REMOTE KB into
+     * {@link BasicAuthenticationTraits} and a cleaned URL. Apache HttpClient 5 (used by RDF4J 6)
+     * rejects URIs with a userinfo component outright, so legacy configs that worked under RDF4J 5
+     * must be normalized before the next connection attempt. Invoked once per KB at startup.
+     */
+    private void migrateUrlEmbeddedCredentials(KnowledgeBase aKB)
+    {
+        try {
+            var cfg = getKnowledgeBaseConfig(aKB);
+            if (!(cfg instanceof SPARQLRepositoryConfig sparqlCfg)) {
+                return;
+            }
+
+            var queryUrl = sparqlCfg.getQueryEndpointUrl();
+            var updateUrl = sparqlCfg.getUpdateEndpointUrl();
+            var querySplit = splitUrlUserInfo(queryUrl);
+            var updateSplit = splitUrlUserInfo(updateUrl);
+
+            if (querySplit.userInfo() == null && updateSplit.userInfo() == null) {
+                return;
+            }
+
+            var newCfg = updateUrl == null //
+                    ? new SPARQLRepositoryConfig(querySplit.cleanUrl()) //
+                    : new SPARQLRepositoryConfig(querySplit.cleanUrl(), updateSplit.cleanUrl());
+
+            // Prefer the query URL's credentials; fall back to the update URL's.
+            var credSource = querySplit.user() != null ? querySplit : updateSplit;
+
+            var traits = isNotBlank(aKB.getTraits()) ? readTraits(aKB) : null;
+            if (traits == null) {
+                traits = new RemoteRepositoryTraits();
+            }
+            var hadAuth = traits.getAuthentication() != null;
+            if (!hadAuth && credSource.user() != null) {
+                var basic = new BasicAuthenticationTraits();
+                basic.setUsername(credSource.user());
+                basic.setPassword(credSource.password());
+                traits.setAuthentication(basic);
+                aKB.setTraits(JSONUtil.toJsonString(traits));
+            }
+
+            updateKnowledgeBase(aKB, newCfg);
+
+            if (hadAuth) {
+                LOG.info(
+                        "Migrated KB [{}]: stripped URL-embedded credentials "
+                                + "(KB already had explicit auth traits configured).",
+                        aKB.getName());
+            }
+            else {
+                LOG.info("Migrated KB [{}]: moved URL-embedded credentials into "
+                        + "basic-auth traits.", aKB.getName());
+            }
+        }
+        catch (Exception e) {
+            LOG.error(
+                    "Unable to migrate URL-embedded credentials for KB [{}]. "
+                            + "Remote connections may fail until the URL is corrected manually.",
+                    aKB.getName(), e);
+        }
+    }
+
+    /**
+     * Parses a URL, returning the userinfo (or {@code null}) and the URL with the userinfo
+     * stripped. Returns {@code (cleanUrl=null, user=null, password=null, userInfo=null)} for a
+     * {@code null} input URL.
+     */
+    private static UrlUserInfo splitUrlUserInfo(String aUrl)
+    {
+        if (aUrl == null) {
+            return new UrlUserInfo(null, null, null, null);
+        }
+        var uri = URI.create(aUrl);
+        var userInfo = uri.getUserInfo();
+        if (!isNotBlank(userInfo)) {
+            return new UrlUserInfo(aUrl, null, null, null);
+        }
+        userInfo = userInfo.trim();
+        var user = userInfo.contains(":") ? substringBefore(userInfo, ":") : userInfo;
+        var password = userInfo.contains(":") ? substringAfter(userInfo, ":") : "";
+        var cleanUrl = aUrl.replace(uri.getRawUserInfo() + "@", "");
+        return new UrlUserInfo(cleanUrl, user, password, userInfo);
+    }
+
+    private record UrlUserInfo(String cleanUrl, String user, String password, String userInfo) {}
 
     @SuppressWarnings("resource")
     @Override
@@ -1626,6 +1743,7 @@ public class KnowledgeBaseServiceImpl
                     .retrieveLabel() //
                     .retrieveDescription() //
                     .retrieveTag() //
+                    .retrieveShortLabel() //
                     .retrieveDeprecation();
 
             Optional<KBHandle> result;
@@ -1705,10 +1823,13 @@ public class KnowledgeBaseServiceImpl
         // would risk truncating legitimate multi-row-per-id output (languages × OPTIONALs).
         var query = SPARQLQueryBuilder.forItems(aKB);
         preResolveLabelProperties(aKB, query, false);
+        // The short label is only fetched on these two paths: they resolve the identifiers stored
+        // in annotations, which is where it is rendered. Search results show the full label.
         query.withIdentifier(aIds.toArray(String[]::new)) //
                 .retrieveLabel() //
                 .retrieveDescription() //
                 .retrieveTag() //
+                .retrieveShortLabel() //
                 .retrieveDeprecation() //
                 .noLimit();
 

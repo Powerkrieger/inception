@@ -1,0 +1,15 @@
+@base <http://example.org/primary> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<#glucose> rdf:type rdfs:Class ;
+    rdfs:label "Glucose" .
+
+<#glucose-6-phosphate> rdf:type rdfs:Class ;
+    rdfs:label "Glucose 6-phosphate" .
+
+<#glucuronate> rdf:type rdfs:Class ;
+    rdfs:label "Glucuronate" .
+
+<#pyruvate> rdf:type rdfs:Class ;
+    rdfs:label "Pyruvate" .

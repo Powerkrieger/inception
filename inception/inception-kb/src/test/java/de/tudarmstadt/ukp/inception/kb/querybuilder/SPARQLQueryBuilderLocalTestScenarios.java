@@ -18,7 +18,7 @@
 package de.tudarmstadt.ukp.inception.kb.querybuilder;
 
 import static de.tudarmstadt.ukp.inception.kb.RdfImportParserConfigs.doctypeTolerantParserConfig;
-import static de.tudarmstadt.ukp.inception.kb.http.PerThreadSslCheckingHttpClientUtils.newPerThreadSslCheckingHttpClientBuilder;
+import static de.tudarmstadt.ukp.inception.kb.http.PerThreadSslCheckingHttpClientUtils.newPerThreadSslCheckingHttpClient;
 import static de.tudarmstadt.ukp.inception.kb.http.PerThreadSslCheckingHttpClientUtils.restoreSslVerification;
 import static de.tudarmstadt.ukp.inception.kb.http.PerThreadSslCheckingHttpClientUtils.suspendSslVerification;
 import static de.tudarmstadt.ukp.inception.kb.querybuilder.SPARQLQueryBuilderAsserts.asHandle;
@@ -29,6 +29,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Arrays.asList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.contentOf;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.eclipse.rdf4j.rio.RDFFormat.RDFXML;
 import static org.eclipse.rdf4j.rio.RDFFormat.TURTLE;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -39,6 +40,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -82,6 +84,14 @@ public class SPARQLQueryBuilderLocalTestScenarios
     static final String DATA_LABELS_AND_DESCRIPTIONS_WITH_LANGUAGE = contentOf(
             new File("src/test/resources/turtle/data_labels_and_descriptions_with_language.ttl"),
             UTF_8);
+
+    static final String DATA_SHORT_LABELS = String.join("\n", //
+            "<#pparg>", //
+            "    rdfs:label 'Peroxisome proliferator-activated receptor gamma' ;", //
+            "    <#shortName> 'PPAR-gamma' .", //
+            "", //
+            "<#insulin>", //
+            "    rdfs:label 'Insulin' .");
 
     static final String DATA_LABELS_WITHOUT_LANGUAGE = String.join("\n", //
             "<#green-goblin>", //
@@ -291,6 +301,8 @@ public class SPARQLQueryBuilderLocalTestScenarios
                         SPARQLQueryBuilderLocalTestScenarios::thatLabelsInAnyLanguageAreRetrievedWhenNoDefaultLanguage),
                 new Scenario("thatLabelsAndDescriptionsWithLanguageArePreferred",
                         SPARQLQueryBuilderLocalTestScenarios::thatLabelsAndDescriptionsWithLanguageArePreferred),
+                new Scenario("thatShortLabelIsRetrievedWhereItExists",
+                        SPARQLQueryBuilderLocalTestScenarios::thatShortLabelIsRetrievedWhereItExists),
                 new Scenario("thatSearchOverMultipleLabelsWorks",
                         SPARQLQueryBuilderLocalTestScenarios::thatSearchOverMultipleLabelsWorks),
                 new Scenario("thatResolveMatchingPropertiesWorks",
@@ -368,8 +380,10 @@ public class SPARQLQueryBuilderLocalTestScenarios
 
     static Repository buildSparqlRepository(String aUrl)
     {
-        var repo = new SPARQLRepository(aUrl);
-        repo.setHttpClient(newPerThreadSslCheckingHttpClientBuilder().build());
+        var creds = extractCredentials(aUrl);
+        var repo = new SPARQLRepository(creds.urlWithoutUserInfo());
+        applyCredentials(repo, creds);
+        repo.setHttpClient(newPerThreadSslCheckingHttpClient());
         repo.setAdditionalHttpHeaders(Map.of("User-Agent", "INCEpTION/0.0.1-SNAPSHOT"));
         repo.init();
         return repo;
@@ -377,11 +391,40 @@ public class SPARQLQueryBuilderLocalTestScenarios
 
     static Repository buildSparqlRepository(String aQueryUrl, String aUpdateUrl)
     {
-        var repo = new SPARQLRepository(aQueryUrl, aUpdateUrl);
-        repo.setHttpClient(newPerThreadSslCheckingHttpClientBuilder().build());
+        var queryCreds = extractCredentials(aQueryUrl);
+        var updateCreds = extractCredentials(aUpdateUrl);
+        var repo = new SPARQLRepository(queryCreds.urlWithoutUserInfo(),
+                updateCreds.urlWithoutUserInfo());
+        applyCredentials(repo, queryCreds);
+        repo.setHttpClient(newPerThreadSslCheckingHttpClient());
         repo.setAdditionalHttpHeaders(Map.of("User-Agent", "INCEpTION/0.0.1-SNAPSHOT"));
         repo.init();
         return repo;
+    }
+
+    private record UrlCredentials(String urlWithoutUserInfo, String user, String password) {}
+
+    // Apache HttpClient 5 (used by RDF4J 6's default HTTP client) rejects URIs with a userinfo
+    // component. Split user:pass@ out of the URL and pass it via setUsernameAndPassword instead.
+    private static UrlCredentials extractCredentials(String aUrl)
+    {
+        var uri = URI.create(aUrl);
+        var userInfo = uri.getRawUserInfo();
+        if (userInfo == null) {
+            return new UrlCredentials(aUrl, null, null);
+        }
+        var sep = userInfo.indexOf(':');
+        var user = sep < 0 ? userInfo : userInfo.substring(0, sep);
+        var password = sep < 0 ? "" : userInfo.substring(sep + 1);
+        var stripped = aUrl.replace(userInfo + "@", "");
+        return new UrlCredentials(stripped, user, password);
+    }
+
+    private static void applyCredentials(SPARQLRepository aRepo, UrlCredentials aCreds)
+    {
+        if (aCreds.user() != null) {
+            aRepo.setUsernameAndPassword(aCreds.user(), aCreds.password());
+        }
     }
 
     /**
@@ -479,6 +522,27 @@ public class SPARQLQueryBuilderLocalTestScenarios
                         "description", "language")
                 .containsExactlyInAnyOrder(new KBHandle("http://example.org/#green-goblin",
                         "Goblin vert", "Little green monster", "fr"));
+    }
+
+    static void thatShortLabelIsRetrievedWhereItExists(Repository aRepository, KnowledgeBase aKB)
+        throws Exception
+    {
+        aKB.setShortLabelIri("http://example.org/#shortName");
+
+        importDataFromString(aRepository, aKB, TURTLE, TURTLE_PREFIX, DATA_SHORT_LABELS);
+
+        var results = asHandles(aRepository, SPARQLQueryBuilder //
+                .forItems(aKB) //
+                .withIdentifier("http://example.org/#pparg", "http://example.org/#insulin") //
+                .retrieveLabel() //
+                .retrieveShortLabel());
+
+        assertThat(results) //
+                .extracting(KBHandle::getIdentifier, KBHandle::getShortLabel,
+                        KBHandle::getShortUiLabel) //
+                .containsExactlyInAnyOrder( //
+                        tuple("http://example.org/#pparg", "PPAR-gamma", "PPAR-gamma"), //
+                        tuple("http://example.org/#insulin", null, "Insulin"));
     }
 
     static void thatSearchOverMultipleLabelsWorks(Repository aRepository, KnowledgeBase aKB)

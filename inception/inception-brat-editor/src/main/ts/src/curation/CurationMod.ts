@@ -37,14 +37,12 @@ export class CurationMod {
     onClick(evt: MouseEvent) {
         const target = evt.target as HTMLElement;
 
-        // Ctrl/Cmd-click only shows the annotation in the annotation detail panel instead of
-        // merging it
-        if (evt.ctrlKey || evt.metaKey) {
-            const id = target.getAttribute('data-arc-ed') || target.getAttribute('data-span-id');
-            if (id) {
-                this.dispatcher.post('ajax', [{ action: 'inspect', id }]);
-            }
-            return;
+        // Shift+click - or Ctrl/Cmd+click - asks the server to show the annotation instead of
+        // merging it. Pages that do not support this ignore the flag and merge.
+        const showDetails = evt.shiftKey || evt.ctrlKey || evt.metaKey;
+        if (evt.shiftKey) {
+            // Shift+click extends the browser's text selection
+            window.getSelection()?.removeAllRanges();
         }
 
         // if clicked on a span, send ajax call to server
@@ -59,6 +57,7 @@ export class CurationMod {
                     targetSpanId,
                     id: target.getAttribute('data-arc-ed'),
                     type,
+                    showDetails,
                 },
             ]);
         }
@@ -71,6 +70,7 @@ export class CurationMod {
                     action: 'selectSpanForMerge',
                     id: spanId,
                     type: editedSpan.type,
+                    showDetails,
                 },
             ]);
         }

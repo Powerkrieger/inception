@@ -193,6 +193,43 @@ public class KnowledgeBaseExporterTest
         }).allSatisfy(id -> assertThat(id).startsWith("imported-"));
     }
 
+    @Test
+    public void thatFallbackKnowledgeBasesAreRemappedOnImport() throws Exception
+    {
+        var exportRequest = FullProjectExportRequest.builder().withProject(sourceProject).build();
+        var monitor = new ProjectExportTaskMonitor(sourceProject, null, "test",
+                exportRequest.getFilenamePrefix());
+        var exportedProject = new ExportedProject();
+        sut.exportData(exportRequest, monitor, exportedProject,
+                Mockito.mock(ZipOutputStream.class));
+
+        // New knowledge bases have no ID before registering - derive a distinct one from the name
+        doAnswer(i -> {
+            KnowledgeBase kb = i.getArgument(0);
+            kb.setRepositoryId("imported-id-" + kb.getName());
+            return null;
+        }).when(kbService).registerKnowledgeBase(any(), any());
+
+        var layer = new AnnotationLayer("layer", "layer", SpanLayerSupport.TYPE, targetProject,
+                false, TOKENS, NO_OVERLAP);
+        var feature = new AnnotationFeature(1, layer, "conceptFeature", "kb:conceptA");
+        var traits = new ConceptFeatureTraits();
+        traits.setRepositoryId("id-kb1");
+        traits.setFallbackRepositoryIds(asList("id-kb3", "id-kb2"));
+        feature.setTraits(JSONUtil.toJsonString(traits));
+        when(schemaService.listAnnotationFeature(targetProject)).thenReturn(asList(feature));
+
+        var zipFile = mock(ZipFile.class);
+        when(zipFile.getEntry(any())).thenReturn(mock(ZipEntry.class));
+        sut.importData(ProjectImportRequest.builder().build(), targetProject, exportedProject,
+                zipFile);
+
+        var imported = JSONUtil.fromJsonString(ConceptFeatureTraits.class, feature.getTraits());
+        assertThat(imported.getRepositoryId()).isEqualTo("imported-id-kb1");
+        assertThat(imported.getFallbackRepositoryIds()) //
+                .containsExactly("imported-id-kb3", "imported-id-kb2");
+    }
+
     private List<KnowledgeBase> knowledgeBases() throws Exception
     {
         var kb1 = buildKnowledgeBase("kb1");
@@ -205,6 +242,7 @@ public class KnowledgeBaseExporterTest
         // Set on one KB only, so the round-trip is covered both for a configured tag property and
         // for the far more common case of none being configured at all.
         kb2.setTagIri(RDFS.COMMENT.stringValue());
+        kb2.setShortLabelIri(RDFS.COMMENT.stringValue());
 
         var kb3 = buildKnowledgeBase("kb3");
         kb3.setType(RepositoryType.REMOTE);

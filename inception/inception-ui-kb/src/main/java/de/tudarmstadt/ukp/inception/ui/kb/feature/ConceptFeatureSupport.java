@@ -161,7 +161,7 @@ public class ConceptFeatureSupport
         }
 
         var traits = readTraits(aFeature);
-        return getConceptHandle(aFeature, aIdentifier, traits).getUiLabel();
+        return getConceptHandle(aFeature, aIdentifier, traits).getShortUiLabel();
     }
 
     @Override
@@ -266,7 +266,8 @@ public class ConceptFeatureSupport
     public KBHandle getConceptHandle(AnnotationFeature aFeature, String aIdentifier,
             ConceptFeatureTraits traits)
     {
-        return labelCache.get(aFeature, traits.getRepositoryId(), aIdentifier);
+        return labelCache.getFromFirstKnowing(aFeature, traits.getRepositoryIdsInOrder(),
+                aIdentifier);
     }
 
     @SuppressWarnings("unchecked")
