@@ -20,13 +20,11 @@ package de.tudarmstadt.ukp.inception.curation.config;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
-import org.springframework.security.core.session.SessionRegistry;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.export.DocumentImportExportService;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
@@ -51,7 +49,6 @@ import de.tudarmstadt.ukp.inception.curation.service.CurationServiceImpl;
 import de.tudarmstadt.ukp.inception.curation.service.CurationSessionServiceImpl;
 import de.tudarmstadt.ukp.inception.curation.settings.CurationProjectSettingsMenuItem;
 import de.tudarmstadt.ukp.inception.curation.settings.CurationProjectSettingsPanelFactory;
-import de.tudarmstadt.ukp.inception.curation.settings.LegacySplitCurationPagePropertiesImpl;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.preferences.PreferencesService;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
@@ -60,7 +57,6 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 
 @Configuration
-@EnableConfigurationProperties({ LegacySplitCurationPagePropertiesImpl.class })
 public class CurationServiceAutoConfiguration
 {
     private @PersistenceContext EntityManager entityManager;
@@ -94,11 +90,11 @@ public class CurationServiceAutoConfiguration
     @Bean
     @Primary
     public CurationSessionService curationSessionService(PreferencesService aPreferencesService,
-            SessionRegistry aSessionRegistry, ProjectService aProjectService, UserDao aUserRegistry,
+            ProjectService aProjectService, UserDao aUserRegistry,
             CurationDocumentService aCurationDocumentService, DocumentService aDocumentService)
     {
-        return new CurationSessionServiceImpl(aPreferencesService, aSessionRegistry,
-                aProjectService, aUserRegistry, aCurationDocumentService, aDocumentService);
+        return new CurationSessionServiceImpl(aPreferencesService, aProjectService, aUserRegistry,
+                aCurationDocumentService, aDocumentService);
     }
 
     @Bean
@@ -113,10 +109,10 @@ public class CurationServiceAutoConfiguration
     @Bean
     public CurationEditingService curationEditingService(DocumentService aDocumentService,
             CurationDocumentService aCurationDocumentService,
-            CurationMergeService aCurationMergeService)
+            CurationMergeService aCurationMergeService, PreferencesService aPreferencesService)
     {
         return new CurationEditingServiceImpl(aDocumentService, aCurationDocumentService,
-                aCurationMergeService);
+                aCurationMergeService, aPreferencesService);
     }
 
     @Bean

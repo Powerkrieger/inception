@@ -17,19 +17,25 @@
  */
 package de.tudarmstadt.ukp.inception.curation.service;
 
-import static de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasAccessMode.UNMANAGED_ACCESS;
-import static de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasUpgradeMode.FORCE_CAS_UPGRADE;
+import static de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasAccessMode.EXCLUSIVE_WRITE_ACCESS;
+import static de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasUpgradeMode.NO_CAS_UPGRADE;
+import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet.CURATION_SET;
 import static de.tudarmstadt.ukp.inception.curation.service.CurationMergeMode.FILL_ONLY;
 import static de.tudarmstadt.ukp.inception.curation.service.CurationMergeMode.LOAD_ONLY;
 import static de.tudarmstadt.ukp.inception.curation.service.CurationMergeMode.RECREATE;
+import static de.tudarmstadt.ukp.inception.curation.sidebar.CurationSidebarManagerPrefs.KEY_CURATION_SIDEBAR_MANAGER_PREFS;
 import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
+import static org.apache.uima.fit.factory.CasFactory.createCas;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -37,22 +43,30 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.uima.cas.CAS;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
+import de.tudarmstadt.ukp.dkpro.core.api.ner.type.NamedEntity;
+import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Token;
 import de.tudarmstadt.ukp.inception.curation.merge.strategy.MergeStrategy;
+import de.tudarmstadt.ukp.inception.curation.sidebar.CurationSidebarManagerPrefs;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
+import de.tudarmstadt.ukp.inception.preferences.PreferencesService;
 
 class CurationEditingServiceImplTest
 {
@@ -61,6 +75,8 @@ class CurationEditingServiceImplTest
     private DocumentService documentService;
     private CurationDocumentService curationDocumentService;
     private CurationMergeService curationMergeService;
+    private PreferencesService preferencesService;
+    private CurationSidebarManagerPrefs curationPrefs;
 
     private CurationEditingServiceImpl sut;
 
@@ -75,12 +91,17 @@ class CurationEditingServiceImplTest
         documentService = mock(DocumentService.class);
         curationDocumentService = mock(CurationDocumentService.class);
         curationMergeService = mock(CurationMergeService.class);
+        preferencesService = mock(PreferencesService.class);
 
         sut = new CurationEditingServiceImpl(documentService, curationDocumentService,
-                curationMergeService);
+                curationMergeService, preferencesService);
 
         project = new Project("project");
         document = new SourceDocument("doc.txt", project, "text");
+
+        curationPrefs = new CurationSidebarManagerPrefs();
+        when(preferencesService.loadDefaultTraitsForProject(KEY_CURATION_SIDEBAR_MANAGER_PREFS,
+                project)).thenReturn(curationPrefs);
         layers = emptyList();
         mergeStrategy = mock(MergeStrategy.class);
     }
@@ -96,11 +117,36 @@ class CurationEditingServiceImplTest
                 aMergeMode);
     }
 
-    private CAS readCuration(CurationMergeMode aMergeMode, String aTemplateUser, boolean aUpgrade)
-        throws Exception
+    private CAS readCuration(CurationMergeMode aMergeMode, boolean aUpgrade) throws Exception
     {
-        return sut.readCurationCas(document, CURATION_USER, emptyMap(), aTemplateUser, aUpgrade,
-                layers, mergeStrategy, aMergeMode);
+        return sut.readCurationCas(document, CURATION_USER, emptyMap(), aUpgrade, layers,
+                mergeStrategy, aMergeMode);
+    }
+
+    private CAS curationCasWithToken() throws Exception
+    {
+        var cas = createCas();
+        cas.setDocumentText("text");
+        cas.addFsToIndexes(new Token(cas.getJCas(), 0, 4));
+        when(curationDocumentService.readCurationCas(document)).thenReturn(cas);
+        return cas;
+    }
+
+    private void givenTheCurationCasIsCreated() throws Exception
+    {
+        doAnswer(call -> {
+            call.getArgument(4, Runnable.class).run();
+            return null;
+        }).when(documentService).readOrCreateAnnotationCas(eq(document), eq(CURATION_SET),
+                eq(NO_CAS_UPGRADE), eq(EXCLUSIVE_WRITE_ACCESS), any());
+    }
+
+    private void givenCuratableUsers(User... aUsers) throws IOException
+    {
+        var users = asList(aUsers);
+        when(curationDocumentService.isDocumentCuratable(document)).thenReturn(true);
+        when(curationDocumentService.listCuratableUsers(document)).thenReturn(users);
+        when(documentService.readAllCasesSharedNoUpgrade(document, users)).thenReturn(emptyMap());
     }
 
     @Nested
@@ -110,6 +156,9 @@ class CurationEditingServiceImplTest
         @Test
         void thatDocumentInNonCuratableStateIsRefused() throws Exception
         {
+            // Everything else would allow curation, so only the state check can refuse
+            givenCuratableUsers(user("ann"));
+            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
             when(curationDocumentService.isDocumentCuratable(document)).thenReturn(false);
 
             assertThatExceptionOfType(DocumentNotCuratableException.class) //
@@ -175,38 +224,58 @@ class CurationEditingServiceImplTest
     class MergeModes
     {
         @Test
-        void thatRecreateMergesIntoATemplateCasAndReplacesTheCurationCas() throws Exception
+        void thatRecreateReplacesTheContentsOfTheCurationCas() throws Exception
         {
-            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
-            var templateCas = mock(CAS.class);
-            when(documentService.readAnnotationCas(any(SourceDocument.class),
-                    any(AnnotationSet.class), any(), any())).thenReturn(templateCas);
+            var curationCas = curationCasWithToken();
+            doAnswer(call -> {
+                // The merge clears the target and fills it from the annotators
+                var target = call.getArgument(2, CAS.class);
+                target.reset();
+                target.setDocumentText("text");
+                target.addFsToIndexes(new NamedEntity(target.getJCas(), 0, 4));
+                return null;
+            }).when(curationMergeService).mergeCasses(eq(document), eq(CURATION_USER), any(),
+                    eq(emptyMap()), eq(mergeStrategy), eq(layers), eq(true));
 
-            assertThat(readCuration(RECREATE, "ann1", true)).isSameAs(templateCas);
+            // The locked curation CAS is kept - deleting it would release the lock
+            assertThat(readCuration(RECREATE, true)).isSameAs(curationCas);
 
-            verify(documentService).readAnnotationCas(document, AnnotationSet.forUser("ann1"),
-                    FORCE_CAS_UPGRADE, UNMANAGED_ACCESS);
+            assertThat(curationCas.select(Token.class).asList()).isEmpty();
+            assertThat(curationCas.select(NamedEntity.class).asList()).hasSize(1);
+            var order = inOrder(curationDocumentService);
+            order.verify(curationDocumentService).upgradeCurationCas(curationCas, document);
+            order.verify(curationDocumentService).writeCurationCas(curationCas, document, false);
+            verify(curationDocumentService, never()).deleteCurationCas(any());
+        }
 
-            // The delete must happen only after the merge succeeded, so that a failing merge
-            // leaves the existing curation CAS intact.
-            var order = inOrder(curationMergeService, curationDocumentService);
-            order.verify(curationMergeService).mergeCasses(document, CURATION_USER, templateCas,
-                    emptyMap(), mergeStrategy, layers, true);
-            order.verify(curationDocumentService).deleteCurationCas(document);
-            order.verify(curationDocumentService).writeCurationCas(templateCas, document, false);
+        @Test
+        void thatAFailedRecreateLeavesTheCurationCasAsItWas() throws Exception
+        {
+            var curationCas = curationCasWithToken();
+            doAnswer(call -> {
+                call.getArgument(2, CAS.class).reset();
+                throw new IllegalStateException("boom");
+            }).when(curationMergeService).mergeCasses(any(), any(), any(), any(), any(), any(),
+                    anyBoolean());
 
-            // RECREATE builds a fresh CAS from the template - the old one is never read.
-            verify(curationDocumentService, never()).readCurationCas(any());
+            assertThatExceptionOfType(IllegalStateException.class) //
+                    .isThrownBy(() -> readCuration(RECREATE, false));
+
+            // The curation CAS stays in memory after the request - a half-done merge in it would
+            // be saved by the next edit
+            assertThat(curationCas.getDocumentText()).isEqualTo("text");
+            assertThat(curationCas.select(Token.class).asList()).hasSize(1);
+            verify(curationDocumentService, never()).writeCurationCas(any(), any(), anyBoolean());
+            verify(curationDocumentService, never()).deleteCurationCas(any());
         }
 
         @Test
         void thatFillOnlyMergesIntoTheExistingCurationCasWithoutDeletingIt() throws Exception
         {
-            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
             var curationCas = mock(CAS.class);
             when(curationDocumentService.readCurationCas(document)).thenReturn(curationCas);
 
-            assertThat(readCuration(FILL_ONLY, "ann1", true)).isSameAs(curationCas);
+            assertThat(readCuration(FILL_ONLY, true)).isSameAs(curationCas);
 
             var order = inOrder(curationDocumentService, curationMergeService);
             order.verify(curationDocumentService).upgradeCurationCas(curationCas, document);
@@ -216,18 +285,15 @@ class CurationEditingServiceImplTest
             order.verify(curationDocumentService).writeCurationCas(curationCas, document, true);
 
             verify(curationDocumentService, never()).deleteCurationCas(any());
-            verify(documentService, never()).readAnnotationCas(any(SourceDocument.class),
-                    any(AnnotationSet.class), any(), any());
         }
 
         @Test
         void thatFillOnlySkipsTheUpgradeWhenNotRequested() throws Exception
         {
-            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
             var curationCas = mock(CAS.class);
             when(curationDocumentService.readCurationCas(document)).thenReturn(curationCas);
 
-            readCuration(FILL_ONLY, "ann1", false);
+            readCuration(FILL_ONLY, false);
 
             verify(curationDocumentService, never()).upgradeCurationCas(any(), any());
             // The merge still happens and is still persisted.
@@ -239,111 +305,278 @@ class CurationEditingServiceImplTest
         @Test
         void thatLoadOnlyReadsTheCurationCasWithoutMerging() throws Exception
         {
-            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
             var curationCas = mock(CAS.class);
             when(curationDocumentService.readCurationCas(document)).thenReturn(curationCas);
 
-            assertThat(readCuration(LOAD_ONLY, "ann1", true)).isSameAs(curationCas);
+            assertThat(readCuration(LOAD_ONLY, true)).isSameAs(curationCas);
 
             verify(curationDocumentService).upgradeCurationCas(curationCas, document);
-            // The upgrade has to be persisted, otherwise it would be redone on every load.
-            verify(curationDocumentService).writeCurationCas(curationCas, document, true);
+            // The upgrade has to be persisted, otherwise it would be redone on every load. But as
+            // it does not change the annotations, the write must not announce itself.
+            verify(curationDocumentService).writeCurationCasSilently(curationCas, document, true);
+            verify(curationDocumentService, never()).writeCurationCas(any(), any(), anyBoolean());
             verifyNoInteractions(curationMergeService);
         }
 
         @Test
         void thatLoadOnlyWithoutUpgradeDoesNotWriteTheCurationCas() throws Exception
         {
+            var curationCas = mock(CAS.class);
+            when(curationDocumentService.readCurationCas(document)).thenReturn(curationCas);
+
+            assertThat(readCuration(LOAD_ONLY, false)).isSameAs(curationCas);
+
+            verify(curationDocumentService, never()).upgradeCurationCas(any(), any());
+            verify(curationDocumentService, never()).writeCurationCas(any(), any(), anyBoolean());
+            verify(curationDocumentService, never()).writeCurationCasSilently(any(), any(),
+                    anyBoolean());
+            verifyNoInteractions(curationMergeService);
+        }
+
+        @ParameterizedTest
+        @EnumSource(CurationMergeMode.class)
+        void thatAMissingCurationCasIsNotCreated(CurationMergeMode aMergeMode) throws Exception
+        {
+            when(curationDocumentService.readCurationCas(document))
+                    .thenThrow(new FileNotFoundException("missing"));
+
+            assertThatExceptionOfType(FileNotFoundException.class) //
+                    .isThrownBy(() -> readCuration(aMergeMode, true));
+
+            verifyNoInteractions(curationMergeService, documentService);
+            verify(curationDocumentService, never()).writeCurationCas(any(), any(), anyBoolean());
+        }
+    }
+
+    @Nested
+    @DisplayName("readOrCreateCurationCas merges only into a curation CAS it created")
+    class InitialMerge
+    {
+        @Test
+        void thatACreatedCurationCasIsMergedIntoAndCurationIsMarkedInProgress() throws Exception
+        {
+            givenCuratableUsers(user("ann1"), user("ann2"));
+            givenTheCurationCasIsCreated();
+            var curationCas = curationCasWithToken();
+
+            // Despite LOAD_ONLY having been requested, a full merge is performed
+            assertThat(readOrCreate(LOAD_ONLY)).isSameAs(curationCas);
+
+            verify(curationMergeService).mergeCasses(eq(document), eq(CURATION_USER), any(),
+                    eq(emptyMap()), eq(mergeStrategy), eq(layers), eq(true));
+            // Writing the merged CAS notifies listeners only if its annotation document exists.
+            // Marking curation as in progress must happen only once the CAS is actually there.
+            var order = inOrder(documentService, curationDocumentService);
+            order.verify(documentService).createOrGetAnnotationDocument(document, CURATION_SET);
+            order.verify(curationDocumentService).writeCurationCas(curationCas, document, false);
+            order.verify(curationDocumentService).markCurationInProgress(document);
+        }
+
+        @Test
+        void thatACreatedCurationCasIsNotMergedIntoWhenAutoMergeIsDisabled() throws Exception
+        {
+            curationPrefs.setAutoMergeCurationSidebar(false);
+            givenCuratableUsers(user("ann1"), user("ann2"));
+            givenTheCurationCasIsCreated();
+            var curationCas = curationCasWithToken();
+
+            assertThat(readOrCreate(LOAD_ONLY)).isSameAs(curationCas);
+
+            // Curation starts from the document without annotations, but it does start
+            verifyNoInteractions(curationMergeService);
+            assertThat(curationCas.select(Token.class).asList()).hasSize(1);
+            verify(curationDocumentService).upgradeCurationCas(curationCas, document);
+            verify(curationDocumentService).markCurationInProgress(document);
+            verify(curationDocumentService, never()).deleteCurationCas(any());
+        }
+
+        @Test
+        void thatAnExplicitMergeIntoACreatedCurationCasMergesWhenAutoMergeIsDisabled()
+            throws Exception
+        {
+            // E.g. a re-merge after the curation CAS was deleted in the meantime
+            curationPrefs.setAutoMergeCurationSidebar(false);
+            givenCuratableUsers(user("ann1"));
+            givenTheCurationCasIsCreated();
+            curationCasWithToken();
+
+            readOrCreate(RECREATE);
+
+            verify(curationMergeService).mergeCasses(eq(document), eq(CURATION_USER), any(),
+                    eq(emptyMap()), eq(mergeStrategy), eq(layers), eq(true));
+        }
+
+        @Test
+        void thatACurationCasCreatedByAnotherCuratorIsNotMergedInto() throws Exception
+        {
+            // Another curator started curation between the checks and taking the lock on the
+            // curation CAS, so the read finds their curation CAS instead of creating one
+            givenCuratableUsers(user("ann1"));
+            var curationCas = curationCasWithToken();
+
+            assertThat(readOrCreate(LOAD_ONLY)).isSameAs(curationCas);
+
+            verify(documentService).readOrCreateAnnotationCas(eq(document), eq(CURATION_SET),
+                    eq(NO_CAS_UPGRADE), eq(EXCLUSIVE_WRITE_ACCESS), any());
+            verifyNoInteractions(curationMergeService);
+            assertThat(curationCas.select(Token.class).asList()).hasSize(1);
+            verify(curationDocumentService).markCurationInProgress(document);
+            verify(documentService, never()).createOrGetAnnotationDocument(
+                    any(SourceDocument.class), any(AnnotationSet.class));
+        }
+
+        @Test
+        void thatAFinishedCurationIsOpenedWithoutBeingUpgradedOrWritten() throws Exception
+        {
+            // Viewing a finished curation must leave its stored version and backups alone
+            givenCuratableUsers(user("ann1"));
+            when(curationDocumentService.isCurationFinished(document)).thenReturn(true);
+            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
+            var curationCas = curationCasWithToken();
+
+            assertThat(readOrCreate(LOAD_ONLY)).isSameAs(curationCas);
+
+            verify(curationDocumentService, never()).upgradeCurationCas(any(), any());
+            verify(curationDocumentService, never()).writeCurationCasSilently(any(), any(),
+                    anyBoolean());
+            verify(curationDocumentService, never()).writeCurationCas(any(), any(), anyBoolean());
+            verify(documentService, never()).readAllCasesSharedNoUpgrade(any(SourceDocument.class),
+                    anyCollection());
+            verify(curationDocumentService).markCurationInProgress(document);
+        }
+
+        @Test
+        void thatTheCreatedCurationCasIsRemovedWhenTheMergeFails() throws Exception
+        {
+            givenCuratableUsers(user("ann1"));
+            givenTheCurationCasIsCreated();
+            curationCasWithToken();
+            doThrow(new IllegalStateException("boom")).when(curationMergeService).mergeCasses(any(),
+                    any(), any(), any(), any(), any(), anyBoolean());
+
+            assertThatExceptionOfType(IllegalStateException.class) //
+                    .isThrownBy(() -> readOrCreate(LOAD_ONLY));
+
+            verify(curationDocumentService).deleteCurationCas(document);
+            verify(curationDocumentService, never()).markCurationInProgress(any());
+        }
+
+        @Test
+        void thatAnExistingCurationCasIsNotRemovedWhenTheMergeFails() throws Exception
+        {
+            givenCuratableUsers(user("ann1"));
+            curationCasWithToken();
+            doThrow(new IllegalStateException("boom")).when(curationMergeService).mergeCasses(any(),
+                    any(), any(), any(), any(), any(), anyBoolean());
+
+            assertThatExceptionOfType(IllegalStateException.class) //
+                    .isThrownBy(() -> readOrCreate(RECREATE));
+
+            verify(curationDocumentService, never()).deleteCurationCas(any());
+            verify(curationDocumentService, never()).markCurationInProgress(any());
+        }
+
+        @Test
+        void thatACurationCasCreatedWithoutAnybodyToMergeFromIsRemoved() throws Exception
+        {
+            // The curation CAS existed during the checks, but was deleted (e.g. reset) before the
+            // lock was taken
+            when(curationDocumentService.isDocumentCuratable(document)).thenReturn(true);
+            when(curationDocumentService.listCuratableUsers(document)).thenReturn(emptyList());
+            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
+            givenTheCurationCasIsCreated();
+
+            assertThatExceptionOfType(DocumentNotCuratableException.class) //
+                    .isThrownBy(() -> readOrCreate(LOAD_ONLY));
+
+            verify(curationDocumentService).deleteCurationCas(document);
+            verify(curationDocumentService, never()).markCurationInProgress(any());
+            verifyNoInteractions(curationMergeService);
+        }
+    }
+
+    @Nested
+    @DisplayName("readOrCreateCurationCas with a data owner selection")
+    class DataOwnerSelection
+    {
+        private CAS readOrCreate(CurationMergeMode aMergeMode, AnnotationSet... aDataOwners)
+            throws Exception
+        {
+            return sut.readOrCreateCurationCas(document, CURATION_USER, layers, mergeStrategy,
+                    aMergeMode, asList(aDataOwners));
+        }
+
+        @Test
+        void thatOnlySelectedDataOwnersAreMerged() throws Exception
+        {
+            var ann1 = user("ann1");
+            var ann2 = user("ann2");
+            when(curationDocumentService.isDocumentCuratable(document)).thenReturn(true);
+            when(curationDocumentService.listCuratableUsers(document))
+                    .thenReturn(asList(ann1, ann2));
+            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
+            var curationCas = curationCasWithToken();
+            Map<String, CAS> ann2Casses = Map.of("ann2", createCas());
+            when(documentService.readAllCasesSharedNoUpgrade(document, asList(ann2)))
+                    .thenReturn(ann2Casses);
+
+            assertThat(readOrCreate(RECREATE, AnnotationSet.forUser("ann2"))).isSameAs(curationCas);
+
+            verify(documentService, never()).readAllCasesSharedNoUpgrade(document,
+                    asList(ann1, ann2));
+            verify(curationMergeService).mergeCasses(eq(document), eq(CURATION_USER), any(),
+                    eq(ann2Casses), eq(mergeStrategy), eq(layers), eq(true));
+        }
+
+        @Test
+        @DisplayName("RECREATE with nobody selected must not discard the curator's work")
+        void thatRecreateWithEmptySelectionIsRefused() throws Exception
+        {
+            when(curationDocumentService.isDocumentCuratable(document)).thenReturn(true);
+            when(curationDocumentService.listCuratableUsers(document))
+                    .thenReturn(asList(user("ann1")));
+            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
+
+            assertThatExceptionOfType(CurationNotPossibleException.class) //
+                    .isThrownBy(() -> readOrCreate(RECREATE)) //
+                    .withMessageContaining("none of the annotators to merge from");
+
+            verify(curationDocumentService, never()).deleteCurationCas(any());
+            verifyNoInteractions(curationMergeService);
+        }
+
+        @Test
+        @DisplayName("FILL_ONLY with nobody to merge from must not report a merge")
+        void thatFillOnlyWithEmptySelectionIsRefused() throws Exception
+        {
+            when(curationDocumentService.isDocumentCuratable(document)).thenReturn(true);
+            when(curationDocumentService.listCuratableUsers(document))
+                    .thenReturn(asList(user("ann1")));
+            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
+
+            // ann2 was selected in the dialog but is no longer curatable
+            assertThatExceptionOfType(CurationNotPossibleException.class) //
+                    .isThrownBy(() -> readOrCreate(FILL_ONLY, AnnotationSet.forUser("ann2"))) //
+                    .withMessageContaining("none of the annotators to merge from");
+
+            verify(curationDocumentService, never()).markCurationInProgress(any());
+            verifyNoInteractions(curationMergeService);
+        }
+
+        @Test
+        @DisplayName("An empty selection does not make the document uncuratable")
+        void thatLoadOnlyWithEmptySelectionOpensTheCurationCas() throws Exception
+        {
+            when(curationDocumentService.isDocumentCuratable(document)).thenReturn(true);
+            when(curationDocumentService.listCuratableUsers(document))
+                    .thenReturn(asList(user("ann1")));
             when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
             var curationCas = mock(CAS.class);
             when(curationDocumentService.readCurationCas(document)).thenReturn(curationCas);
 
-            assertThat(readCuration(LOAD_ONLY, "ann1", false)).isSameAs(curationCas);
+            assertThat(readOrCreate(LOAD_ONLY)).isSameAs(curationCas);
 
-            verify(curationDocumentService, never()).upgradeCurationCas(any(), any());
-            verify(curationDocumentService, never()).writeCurationCas(any(), any(), anyBoolean());
-            verifyNoInteractions(curationMergeService);
-        }
-    }
-
-    @Nested
-    @DisplayName("A missing curation CAS forces a full merge")
-    class MissingCurationCas
-    {
-        @Test
-        void thatLoadOnlyIsPromotedToRecreateWhenNoCurationCasExists() throws Exception
-        {
-            when(curationDocumentService.existsCurationCas(document)).thenReturn(false);
-            var templateCas = mock(CAS.class);
-            when(documentService.readAnnotationCas(any(SourceDocument.class),
-                    any(AnnotationSet.class), any(), any())).thenReturn(templateCas);
-
-            assertThat(readCuration(LOAD_ONLY, "ann1", true)).isSameAs(templateCas);
-
-            // Despite LOAD_ONLY having been requested, a full merge is performed.
-            verify(curationMergeService).mergeCasses(document, CURATION_USER, templateCas,
-                    emptyMap(), mergeStrategy, layers, true);
-            verify(curationDocumentService).writeCurationCas(templateCas, document, false);
-            verify(curationDocumentService, never()).readCurationCas(any());
-        }
-
-        @Test
-        void thatFillOnlyIsPromotedToRecreateWhenNoCurationCasExists() throws Exception
-        {
-            when(curationDocumentService.existsCurationCas(document)).thenReturn(false);
-            var templateCas = mock(CAS.class);
-            when(documentService.readAnnotationCas(any(SourceDocument.class),
-                    any(AnnotationSet.class), any(), any())).thenReturn(templateCas);
-
-            assertThat(readCuration(FILL_ONLY, "ann1", true)).isSameAs(templateCas);
-
-            verify(curationMergeService).mergeCasses(document, CURATION_USER, templateCas,
-                    emptyMap(), mergeStrategy, layers, true);
-            verify(curationDocumentService, never()).readCurationCas(any());
-        }
-
-        @Test
-        void thatRecreateWithoutATemplateUserFails() throws Exception
-        {
-            when(curationDocumentService.existsCurationCas(document)).thenReturn(false);
-
-            assertThatExceptionOfType(IllegalStateException.class) //
-                    .isThrownBy(() -> readCuration(LOAD_ONLY, null, true)) //
-                    .withMessageContaining("without a template annotation document");
-
-            verifyNoInteractions(curationMergeService);
-        }
-    }
-
-    @Nested
-    @DisplayName("readOrCreateCurationCas wiring")
-    class Wiring
-    {
-        @Test
-        void thatTheFirstCuratableUserIsUsedAsTemplateAndCurationIsMarkedInProgress()
-            throws Exception
-        {
-            var users = asList(user("ann1"), user("ann2"));
-            when(curationDocumentService.isDocumentCuratable(document)).thenReturn(true);
-            when(curationDocumentService.listCuratableUsers(document)).thenReturn(users);
-            when(curationDocumentService.existsCurationCas(document)).thenReturn(false);
-            when(documentService.readAllCasesSharedNoUpgrade(document, users))
-                    .thenReturn(emptyMap());
-            var templateCas = mock(CAS.class);
-            when(documentService.readAnnotationCas(any(SourceDocument.class),
-                    any(AnnotationSet.class), any(), any())).thenReturn(templateCas);
-
-            assertThat(readOrCreate(RECREATE)).isSameAs(templateCas);
-
-            verify(documentService).readAnnotationCas(document, AnnotationSet.forUser("ann1"),
-                    FORCE_CAS_UPGRADE, UNMANAGED_ACCESS);
-            verify(documentService).readAllCasesSharedNoUpgrade(document, users);
-
-            // Marking curation as in progress must happen only once the CAS is actually there.
-            var order = inOrder(curationDocumentService);
-            order.verify(curationDocumentService).writeCurationCas(eq(templateCas), eq(document),
-                    anyBoolean());
-            order.verify(curationDocumentService).markCurationInProgress(document);
+            verify(curationDocumentService).markCurationInProgress(document);
         }
     }
 
@@ -351,8 +584,12 @@ class CurationEditingServiceImplTest
     class IsOpenableForCuration
     {
         @Test
-        void thatNonCuratableDocumentIsNotOpenable()
+        void thatNonCuratableDocumentIsNotOpenable() throws Exception
         {
+            // Everything else would make it openable, so only the state check can refuse
+            when(curationDocumentService.listCuratableUsers(document))
+                    .thenReturn(asList(user("ann1")));
+            when(curationDocumentService.existsCurationCas(document)).thenReturn(true);
             when(curationDocumentService.isDocumentCuratable(document)).thenReturn(false);
 
             assertThat(sut.isOpenableForCuration(document)).isFalse();
