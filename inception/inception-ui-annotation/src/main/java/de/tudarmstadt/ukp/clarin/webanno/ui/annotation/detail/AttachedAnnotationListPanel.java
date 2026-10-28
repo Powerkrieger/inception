@@ -49,12 +49,11 @@ import org.apache.wicket.spring.injection.annot.SpringBean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanLayerSupport;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.Renderer;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.rendering.selection.Selection;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
@@ -78,21 +77,15 @@ public class AttachedAnnotationListPanel
     private @SpringBean AnnotationSchemaService schemaService;
     private @SpringBean LayerSupportRegistry layerRegistry;
 
-    private final AnnotationPageBase page;
     private final WebMarkupContainer noAttachedAnnotationsInfo;
     private final WebMarkupContainer attachedAnnotationsContainer;
-    private final AnnotationActionHandler actionHandler;
-
     private final IModel<List<AttachedAnnotationInfo>> annotations;
 
-    public AttachedAnnotationListPanel(String aId, AnnotationPageBase aPage,
-            AnnotationActionHandler aActionHandler, IModel<AnnotatorState> aModel)
+    public AttachedAnnotationListPanel(String aId, IModel<AnnotatorState> aModel)
     {
         super(aId, aModel);
 
-        page = aPage;
         annotations = LoadableDetachableModel.of(this::getRelationInfo);
-        actionHandler = aActionHandler;
 
         noAttachedAnnotationsInfo = new WebMarkupContainer("noAttachedAnnotationsInfo");
         noAttachedAnnotationsInfo.setOutputMarkupPlaceholderTag(true);
@@ -122,6 +115,11 @@ public class AttachedAnnotationListPanel
         return (AnnotatorState) getDefaultModelObject();
     }
 
+    private AnnotationActionHandler actionHandler()
+    {
+        return findParent(AnnotationDetailEditorPanel.class).detailActionHandler();
+    }
+
     private List<AttachedAnnotationInfo> getRelationInfo()
     {
         Selection selection = getModelObject().getSelection();
@@ -132,7 +130,7 @@ public class AttachedAnnotationListPanel
 
         CAS cas;
         try {
-            cas = page.getEditorCas();
+            cas = findParent(AnnotationDetailEditorPanel.class).detailCas();
         }
         catch (IOException e) {
             // If we have trouble accessing the CAS, we probably never get here anyway...
@@ -275,15 +273,20 @@ public class AttachedAnnotationListPanel
 
             aItem.add(new Label("endpoint", info.endpointText));
 
+            // Selecting and jumping act on the active editor, so they are not offered while the
+            // detail panel shows an annotation read-only
+            var floating = findParent(AnnotationDetailEditorPanel.class).isFloating();
+
             aItem.add(new LambdaAjaxLink("jumpToEndpoint",
-                    _target -> actionHandler.actionSelectAndJump(_target, info.endPointVid))
+                    _target -> actionHandler().actionSelectAndJump(_target, info.endPointVid))
                             .setAlwaysEnabled(true) // avoid disabling in read-only mode
-            );
+                            .setVisible(!floating));
 
             LambdaAjaxLink selectRelation = new LambdaAjaxLink("selectRelation",
-                    _target -> actionHandler.actionSelect(_target, info.relationVid));
+                    _target -> actionHandler().actionSelect(_target, info.relationVid));
             // avoid disabling in read-only mode
-            selectRelation.setAlwaysEnabled(info.relationVid != null);
+            selectRelation.setAlwaysEnabled(info.relationVid != null && !floating);
+            selectRelation.setEnabled(!floating);
             selectRelation
                     .add(visibleWhen(() -> info.relationVid != null && info.relationVid.isSet()));
             aItem.add(selectRelation);

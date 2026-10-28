@@ -26,10 +26,10 @@ import java.util.Set;
 import de.tudarmstadt.ukp.clarin.webanno.constraints.model.ParsedConstraints;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
+import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.Mode;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
-import de.tudarmstadt.ukp.inception.project.api.ProjectService;
 
 /**
  * Covers information about the state of the annotation editor component that is relevant across
@@ -57,6 +57,12 @@ public interface AnnotatorState
      *            might invalidate the VIDs).
      */
     void setAnnotationDocumentTimestamp(long aTimeStamp);
+
+    /**
+     * Clear the annotation document timestamp. This would be used e.g. when loading read-only
+     * documents which require no concurrent modification detection.
+     */
+    void clearAnnotationDocumentTimestamp();
 
     // ---------------------------------------------------------------------------------------------
     // Annotation behavior
@@ -98,9 +104,22 @@ public interface AnnotatorState
     // ---------------------------------------------------------------------------------------------
     // User
     // ---------------------------------------------------------------------------------------------
+    /**
+     * @deprecated Use {@link #getDataOwner()} instead.
+     */
+    @Deprecated
+    @Override
     User getUser();
 
+    /**
+     * @param aUser
+     *            the data owner.
+     * @deprecated We should introduce a {@code setDataOwner(AnnotationSet)} instead
+     */
+    @Deprecated
     void setUser(User aUser);
+
+    AnnotationSet getDataOwner();
 
     /**
      * @param aCurrentUserName
@@ -115,11 +134,9 @@ public interface AnnotatorState
     @Override
     Project getProject();
 
-    void clearProject();
-
     void setProject(Project aProject);
 
-    void refreshProject(ProjectService aProjectService);
+    void clearProject();
 
     // ---------------------------------------------------------------------------------------------
     // Constraints

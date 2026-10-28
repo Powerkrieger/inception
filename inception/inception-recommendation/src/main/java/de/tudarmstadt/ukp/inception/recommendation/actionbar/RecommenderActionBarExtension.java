@@ -20,12 +20,11 @@ package de.tudarmstadt.ukp.inception.recommendation.actionbar;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.springframework.core.annotation.Order;
 
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarContext;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarExtension;
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPage;
 import de.tudarmstadt.ukp.inception.recommendation.api.RecommendationService;
 import de.tudarmstadt.ukp.inception.recommendation.config.RecommenderServiceAutoConfiguration;
-import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 
 /**
  * <p>
@@ -45,21 +44,23 @@ public class RecommenderActionBarExtension
     }
 
     @Override
-    public boolean accepts(AnnotationPageBase aPage)
+    public boolean accepts(ActionBarContext aContext)
     {
-        if (!(aPage instanceof AnnotationPage)) {
+        if (!aContext.hasDocument()) {
             return false;
         }
 
-        return aPage.getModel() //
-                .map(AnnotatorState::getProject) //
-                .map(recommendationService::existsEnabledRecommender) //
-                .orElse(false).getObject();
+        if (!(aContext.page() instanceof AnnotationPage)) {
+            return false;
+        }
+
+        var project = aContext.page().getProject();
+        return project != null && recommendationService.existsEnabledRecommender(project);
     }
 
     @Override
-    public Panel createActionBarItem(String aId, AnnotationPageBase aPage)
+    public Panel createActionBarItem(String aId, ActionBarContext aContext)
     {
-        return new RecommenderActionBarPanel(aId, aPage);
+        return new RecommenderActionBarPanel(aId, aContext.editor());
     }
 }

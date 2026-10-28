@@ -17,307 +17,136 @@
  */
 package de.tudarmstadt.ukp.inception.ui.curation.sidebar;
 
-import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.ANNOTATOR;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.MANAGER;
-import static de.tudarmstadt.ukp.inception.support.WebAnnoConst.CURATION_USER;
 import static de.tudarmstadt.ukp.inception.support.lambda.HtmlElementEvents.CHANGE_EVENT;
-import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.enabledWhenNot;
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visibleWhen;
-import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visibleWhenNot;
-import static de.tudarmstadt.ukp.inception.support.wicket.WicketUtil.refreshPage;
+import static java.util.Collections.emptyList;
 
-import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 
 import org.apache.wicket.ajax.AjaxRequestTarget;
-import org.apache.wicket.feedback.IFeedback;
+import org.apache.wicket.event.IEvent;
 import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.form.Check;
 import org.apache.wicket.markup.html.form.CheckBox;
 import org.apache.wicket.markup.html.form.CheckGroup;
-import org.apache.wicket.markup.html.form.DropDownChoice;
 import org.apache.wicket.markup.html.form.Form;
-import org.apache.wicket.markup.html.form.LambdaChoiceRenderer;
 import org.apache.wicket.markup.html.list.ListItem;
 import org.apache.wicket.markup.html.list.ListView;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LambdaModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
-import org.apache.wicket.model.PropertyModel;
 import org.apache.wicket.model.ResourceModel;
 import org.apache.wicket.spring.injection.annot.SpringBean;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
-import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPage;
-import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
-import de.tudarmstadt.ukp.clarin.webanno.ui.curation.page.MergeDialog;
-import de.tudarmstadt.ukp.clarin.webanno.ui.curation.page.MergeDialog.State;
 import de.tudarmstadt.ukp.inception.curation.api.CurationSessionService;
-import de.tudarmstadt.ukp.inception.curation.model.CurationWorkflow;
-import de.tudarmstadt.ukp.inception.curation.service.CurationMergeService;
-import de.tudarmstadt.ukp.inception.curation.service.CurationService;
-import de.tudarmstadt.ukp.inception.curation.sidebar.CurationSidebarProperties;
-import de.tudarmstadt.ukp.inception.editor.AnnotationEditorExtensionRegistry;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
-import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxButton;
+import de.tudarmstadt.ukp.inception.rendering.selection.DocumentStateChangedInEditorEvent;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxFormChoiceComponentUpdatingBehavior;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxFormComponentUpdatingBehavior;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
-import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxSubmitLink;
+import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.SidebarContext;
 
 public class CurationSidebar
     extends AnnotationSidebar_ImplBase
 {
     private static final long serialVersionUID = -4195790451286055737L;
 
-    private static final String CID_SESSION_CONTROL_FORM = "sessionControlForm";
-    private static final String CID_START_SESSION_BUTTON = "startSession";
-    private static final String CID_STOP_SESSION_BUTTON = "stopSession";
-    private static final String CID_SELECT_CURATION_TARGET = "curationTarget";
-
-    private final static Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
-
     private @SpringBean UserDao userRepository;
     private @SpringBean ProjectService projectService;
-    private @SpringBean AnnotationEditorExtensionRegistry extensionRegistry;
     private @SpringBean CurationSessionService curationSessionService;
     private @SpringBean CurationSidebarService curationSidebarService;
-    private @SpringBean CurationService curationService;
-    private @SpringBean CurationMergeService curationMergeService;
-    private @SpringBean AnnotationSchemaService annotationService;
-    private @SpringBean CurationSidebarProperties curationSidebarProperties;
 
     private CheckGroup<AnnotationSet> selectedUsers;
-    private DropDownChoice<String> curationTargetChoice;
     private ListView<AnnotationSet> users;
     private final Form<Void> usersForm;
     private CheckBox showMerged;
     private CheckBox showScore;
-    private final IModel<CurationWorkflow> curationWorkflowModel;
     private final IModel<Boolean> isTargetFinished;
 
     private final Label noDocsLabel;
 
-    private final MergeDialog mergeConfirm;
-
-    public CurationSidebar(String aId, AnnotationActionHandler aActionHandler,
-            CasProvider aCasProvider, AnnotationPageBase2 aAnnotationPage)
+    public CurationSidebar(String aId, SidebarContext aContext)
     {
-        super(aId, aActionHandler, aCasProvider, aAnnotationPage);
-
-        var state = aAnnotationPage.getModelObject();
-
-        queue(createSessionControlForm(CID_SESSION_CONTROL_FORM)
-                .add(visibleWhen(() -> getPage() instanceof AnnotationPage)));
+        super(aId, aContext);
 
         isTargetFinished = LambdaModel.of(() -> {
-            var sessionOwner = userRepository.getCurrentUsername();
-            return curationSidebarService.isCurationFinished(state, sessionOwner);
+            var state = getModelObject();
+            return state != null && curationSidebarService.isCurationFinished(state);
         });
 
         noDocsLabel = new Label("noDocumentsLabel", new ResourceModel("noDocuments"));
-        noDocsLabel.add(visibleWhen(() -> isSessionActive() && !isTargetFinished.getObject()
-                && users.getModelObject().isEmpty()));
+        noDocsLabel.add(visibleWhen(
+                () -> !isTargetFinished.getObject() && users.getModelObject().isEmpty()));
         queue(noDocsLabel);
 
         queue(usersForm = createUserSelection("usersForm"));
 
-        showMerged = new CheckBox("showMerged", Model.of(false));
-        showMerged.add(visibleWhen(this::isSessionActive));
+        var projectId = aContext.getProject().getId();
+        var sessionOwner = userRepository.getSessionOwnerName();
+
+        showMerged = new CheckBox("showMerged", LambdaModel.of( //
+                () -> curationSidebarService.isShowAll(sessionOwner, projectId), //
+                value -> curationSidebarService.setShowAll(sessionOwner, projectId, value)));
+        showMerged.add(visibleWhen(this::isCurationEditorExtensionEnabled));
         showMerged.add(new LambdaAjaxFormComponentUpdatingBehavior(CHANGE_EVENT,
-                this::actionToggleShowMerged));
+                this::actionRefreshDocument));
         queue(showMerged);
 
-        showScore = new CheckBox("showScore", Model.of(true));
-        showScore.add(visibleWhen(this::isSessionActive));
+        showScore = new CheckBox("showScore", LambdaModel.of( //
+                () -> curationSidebarService.isShowScore(sessionOwner, projectId), //
+                value -> curationSidebarService.setShowScore(sessionOwner, projectId, value)));
+        showScore.add(visibleWhen(this::isCurationEditorExtensionEnabled));
         showScore.add(new LambdaAjaxFormComponentUpdatingBehavior(CHANGE_EVENT,
-                this::actionToggleShowScore));
+                this::actionRefreshDocument));
         queue(showScore);
-
-        if (isSessionActive()) {
-            var sessionOwner = userRepository.getCurrentUsername();
-            var project = state.getProject();
-            showMerged.setModelObject(
-                    curationSidebarService.isShowAll(sessionOwner, project.getId()));
-            showScore.setModelObject(
-                    curationSidebarService.isShowScore(sessionOwner, project.getId()));
-        }
-
-        curationWorkflowModel = Model
-                .of(curationService.readOrCreateCurationWorkflow(state.getProject()));
-
-        // confirmation dialog when using automatic merging (might change user's annos)
-        IModel<String> documentNameModel = PropertyModel.of(getAnnotationPage().getModel(),
-                "document.name");
-        queue(mergeConfirm = new MergeDialog("mergeConfirmDialog",
-                new ResourceModel("mergeConfirmTitle"), new ResourceModel("mergeConfirmText"),
-                documentNameModel, curationWorkflowModel));
     }
 
-    private void actionToggleShowMerged(AjaxRequestTarget aTarget)
+    @Override
+    public void onEvent(IEvent<?> aEvent)
     {
-        var sessionOwner = userRepository.getCurrentUsername();
-        curationSidebarService.setShowAll(sessionOwner, getModelObject().getProject().getId(),
-                showMerged.getModelObject());
-        getAnnotationPage().actionRefreshDocument(aTarget);
-    }
+        super.onEvent(aEvent);
 
-    private void actionToggleShowScore(AjaxRequestTarget aTarget)
-    {
-        var sessionOwner = userRepository.getCurrentUsername();
-        curationSidebarService.setShowScore(sessionOwner, getModelObject().getProject().getId(),
-                showScore.getModelObject());
-        getAnnotationPage().actionRefreshDocument(aTarget);
-    }
-
-    private void actionOpenMergeDialog(AjaxRequestTarget aTarget, Form<Void> aForm)
-    {
-        mergeConfirm.setConfirmAction(this::actionMerge);
-        mergeConfirm.show(aTarget);
-    }
-
-    private void actionMerge(AjaxRequestTarget aTarget, Form<State> aForm)
-    {
-        var state = getModelObject();
-        var dataOwner = state.getUser();
-        var curationWorkflow = curationWorkflowModel.getObject();
-
-        if (aForm.getModelObject().isSaveSettingsAsDefault()) {
-            curationService.createOrUpdateCurationWorkflow(curationWorkflow);
-            success("Updated project merge strategy settings");
-        }
-
-        aTarget.addChildren(getPage(), IFeedback.class);
-
-        try {
-            var mergeStrategyFactory = curationSidebarService.merge(state, curationWorkflow,
-                    dataOwner.getUsername(), selectedUsers.getModelObject(),
-                    aForm.getModelObject().isClearTargetCas());
-            success("Re-merge using [" + mergeStrategyFactory.getLabel() + "] finished!");
-            refreshPage(aTarget, getPage());
-        }
-        catch (Exception e) {
-            error("Unable to merge: " + e.getMessage());
-            LOG.error("Unable to merge document {} to user {}", dataOwner, state.getDocument(), e);
+        if (aEvent.getPayload() instanceof DocumentStateChangedInEditorEvent stateChanged
+                && stateChanged.isFor(getModelObject())
+                && stateChanged.getRequestHandler() != null) {
+            stateChanged.getRequestHandler().add(this);
         }
     }
 
-    private Form<Void> createSessionControlForm(String aId)
+    private void actionRefreshDocument(AjaxRequestTarget aTarget)
     {
-        var form = new Form<Void>(aId);
-
-        form.setOutputMarkupId(true);
-
-        var targetChoiceRenderer = new LambdaChoiceRenderer<>(
-                aUsername -> CURATION_USER.equals(aUsername) ? "curation document" : "my document");
-
-        var curationTargets = new ArrayList<String>();
-        curationTargets.add(CURATION_USER);
-        if (curationSidebarProperties.isOwnUserCurationTargetEnabled() && projectService.hasRole(
-                userRepository.getCurrentUsername(), getModelObject().getProject(), ANNOTATOR)) {
-            curationTargets.add(userRepository.getCurrentUsername());
-        }
-
-        curationTargetChoice = new DropDownChoice<>(CID_SELECT_CURATION_TARGET);
-        if (!isSessionActive()) {
-            curationTargetChoice.setModel(Model.of(curationTargets.get(0)));
-        }
-        else {
-            curationTargetChoice.setModel(Model.of(curationSessionService.getCurationTarget(
-                    userRepository.getCurrentUsername(), getModelObject().getProject().getId())));
-        }
-        curationTargetChoice.setChoices(curationTargets);
-        curationTargetChoice.setChoiceRenderer(targetChoiceRenderer);
-        curationTargetChoice.add(enabledWhenNot(this::isSessionActive));
-        curationTargetChoice.add(visibleWhen(() -> curationTargets.size() > 1));
-        curationTargetChoice.setOutputMarkupId(true);
-        curationTargetChoice.setRequired(true);
-        form.add(curationTargetChoice);
-
-        form.add(new LambdaAjaxSubmitLink<>(CID_START_SESSION_BUTTON, this::actionStartSession)
-                .add(visibleWhenNot(this::isSessionActive)));
-        form.add(new LambdaAjaxLink(CID_STOP_SESSION_BUTTON, this::actionStopSession)
-                .add(visibleWhen((this::isSessionActive))));
-
-        return form;
-    }
-
-    private boolean isSessionActive()
-    {
-        return curationSessionService.existsSession(userRepository.getCurrentUsername(),
-                getModelObject().getProject().getId());
+        getActiveEditor().orElseThrow().actionRefreshDocument(aTarget);
     }
 
     /**
-     * @deprecated Curation is a permanent feature on the curation page, so it no longer needs to be
-     *             startable/stoppable as it way on the annotation page. We keep this only as long
-     *             until we have resolved how to deal with changing the curation target without
-     *             creating inconsistencies.
+     * The "show all" and "show score" options only affect the curation suggestions rendered into
+     * the editor, which only happens where the curation editor extension is enabled.
      */
-    @Deprecated
-    private void actionStartSession(AjaxRequestTarget aTarget, Form<?> form)
-    {
-        var sessionOwner = userRepository.getCurrentUsername();
-        var state = getModelObject();
-        var project = state.getProject().getId();
-
-        curationSessionService.startSession(sessionOwner, state.getProject(),
-                !curationTargetChoice.getModelObject().equals(CURATION_USER));
-
-        showMerged.setModelObject(curationSidebarService.isShowAll(sessionOwner, project));
-
-        state.setUser(curationSessionService.getCurationTargetUser(sessionOwner, project));
-        state.clearSelection();
-
-        getAnnotationPage().actionLoadDocument(aTarget);
-    }
-
-    /**
-     * @deprecated Curation is a permanent feature on the curation page, so it no longer needs to be
-     *             startable/stoppable as it way on the annotation page. We keep this only as long
-     *             until we have resolved how to deal with changing the curation target without
-     *             creating inconsistencies.
-     */
-    @Deprecated
-    private void actionStopSession(AjaxRequestTarget aTarget)
+    private boolean isCurationEditorExtensionEnabled()
     {
         var state = getModelObject();
-        var sessionOwner = userRepository.getCurrentUser();
-
-        state.setUser(userRepository.getCurrentUser());
-        state.clearSelection();
-
-        curationSessionService.closeSession(sessionOwner.getUsername(), state.getProject().getId());
-
-        getAnnotationPage().actionLoadDocument(aTarget);
+        return state != null && state.isExtensionEnabled(CurationEditorExtension.EXTENSION_ID);
     }
 
     private Form<Void> createUserSelection(String aId)
     {
-        var sessionOwner = userRepository.getCurrentUsername();
-        var project = getModelObject().getProject();
+        var sessionOwner = userRepository.getSessionOwnerName();
+        var project = getProject();
 
         var form = new Form<Void>(aId);
         form.setOutputMarkupPlaceholderTag(true);
-        form.add(visibleWhen(() -> isSessionActive() && !users.getModelObject().isEmpty()));
+        form.add(visibleWhen(() -> !users.getModelObject().isEmpty()));
 
         form.add(new LambdaAjaxLink("selectAll", this::actionSelectAll));
         form.add(new LambdaAjaxLink("selectNone", this::actionSelectNone));
         form.add(new LambdaAjaxLink("invertSelection", this::actionInvertSelection));
-
-        form.add(new LambdaAjaxButton<>("merge", this::actionOpenMergeDialog)
-                .add(visibleWhenNot(isTargetFinished)));
 
         users = new ListView<AnnotationSet>("users",
                 LoadableDetachableModel.of(this::listCuratableDataOwners))
@@ -333,10 +162,6 @@ public class CurationSidebar
         };
 
         selectedUsers = new CheckGroup<AnnotationSet>("selectedUsers");
-        // Wicket reads the CheckGroup model once per rendered Check (i.e. once per annotator
-        // row). A LoadableDetachableModel resolves the selected set a single time per request
-        // and caches it, instead of re-entering the curation session service - and its lock -
-        // for every row and rebuilding the set each time.
         selectedUsers.setModel(new LoadableDetachableModel<Collection<AnnotationSet>>()
         {
             private static final long serialVersionUID = 1L;
@@ -366,9 +191,9 @@ public class CurationSidebar
 
     private IModel<String> maybeAnonymizeUsername(ListItem<AnnotationSet> aDataOwnerListItem)
     {
-        var project = getModelObject().getProject();
+        var project = getProject();
         if (project.isAnonymousCuration()
-                && !projectService.hasRole(userRepository.getCurrentUser(), project, MANAGER)) {
+                && !projectService.hasRole(userRepository.getSessionOwner(), project, MANAGER)) {
             return Model.of("Anonymized annotator " + (aDataOwnerListItem.getIndex() + 1));
         }
 
@@ -380,19 +205,23 @@ public class CurationSidebar
      */
     private List<AnnotationSet> listCuratableDataOwners()
     {
-        var doc = getModelObject().getDocument();
-        if (doc == null) {
-            return Collections.emptyList();
+        var context = getActiveEditor();
+        if (context.isEmpty()) {
+            return emptyList();
         }
 
-        return curationSessionService.listCuratableDataOwners(userRepository.getCurrentUsername(),
-                doc);
+        var doc = context.get().getAnnotatorState().getDocument();
+        if (doc == null) {
+            return emptyList();
+        }
+
+        return curationSessionService.listCuratableDataOwners(doc);
     }
 
     private void actionChangeVisibleUsers(AjaxRequestTarget aTarget)
     {
         aTarget.add(usersForm);
-        getAnnotationPage().actionRefreshDocument(aTarget);
+        getActiveEditor().orElseThrow().actionRefreshDocument(aTarget);
     }
 
     private void actionSelectAll(AjaxRequestTarget aTarget)
@@ -404,14 +233,14 @@ public class CurationSidebar
 
     private void actionSelectNone(AjaxRequestTarget aTarget)
     {
-        setSelectedDataOwners(Collections.emptyList());
+        setSelectedDataOwners(emptyList());
         actionChangeVisibleUsers(aTarget);
     }
 
     private void actionInvertSelection(AjaxRequestTarget aTarget)
     {
-        var sessionOwner = userRepository.getCurrentUsername();
-        var projectId = getModelObject().getProject().getId();
+        var sessionOwner = userRepository.getSessionOwnerName();
+        var projectId = getProject().getId();
         var candidates = users.getModelObject();
         var selected = curationSessionService.getSelectedDataOwners(sessionOwner, projectId,
                 candidates);
@@ -423,8 +252,8 @@ public class CurationSidebar
 
     private void setSelectedDataOwners(Collection<AnnotationSet> aSelected)
     {
-        var sessionOwner = userRepository.getCurrentUsername();
-        var projectId = getModelObject().getProject().getId();
+        var sessionOwner = userRepository.getSessionOwnerName();
+        var projectId = getProject().getId();
         curationSessionService.setSelectedDataOwners(sessionOwner, projectId,
                 users.getModelObject(), aSelected);
     }

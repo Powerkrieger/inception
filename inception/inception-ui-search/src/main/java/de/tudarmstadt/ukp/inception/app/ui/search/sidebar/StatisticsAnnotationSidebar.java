@@ -49,17 +49,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.preferences.UserPreferencesService;
-import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
-import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
 import de.tudarmstadt.ukp.inception.app.ui.search.Formats;
 import de.tudarmstadt.ukp.inception.app.ui.search.sidebar.options.StatisticsOptions;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import de.tudarmstadt.ukp.inception.search.ExecutionException;
 import de.tudarmstadt.ukp.inception.search.Granularities;
@@ -72,6 +69,7 @@ import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxButton;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxFormComponentUpdatingBehavior;
 import de.tudarmstadt.ukp.inception.support.spring.ApplicationEventPublisherHolder;
 import de.tudarmstadt.ukp.inception.support.wicket.AjaxDownloadLink;
+import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.SidebarContext;
 
 public class StatisticsAnnotationSidebar
     extends AnnotationSidebar_ImplBase
@@ -129,15 +127,14 @@ public class StatisticsAnnotationSidebar
 
     private StatisticsProvider statsProvider;
 
-    public StatisticsAnnotationSidebar(String aId, AnnotationActionHandler aActionHandler,
-            CasProvider aCasProvider, AnnotationPageBase2 aAnnotationPage)
+    public StatisticsAnnotationSidebar(String aId, SidebarContext aContext)
     {
-        super(aId, aActionHandler, aCasProvider, aAnnotationPage);
+        super(aId, aContext);
 
         setOutputMarkupId(true);
         setOutputMarkupPlaceholderTag(true);
 
-        projectModel = new Model<Project>(aAnnotationPage.getProject());
+        projectModel = new Model<Project>(aContext.page().getProject());
         currentUser = userRepository.getCurrentUser();
 
         add(new DocLink("statisticsHelpLink", "sect_statistics"));
@@ -155,17 +152,6 @@ public class StatisticsAnnotationSidebar
         withoutProblematicStats = null;
 
         layerStatsList = null;
-
-        /*
-         * //userPreferencesService.loadPreferences(aModel.getObject(), currentUser.getUsername())
-         * //layers = aModel.getObject().getAnnotationLayers(); //layers =
-         * aModel.getObject().getSelectableLayers(); hiddenLayerIds =
-         * aModel.getObject().getPreferences().getHiddenAnnotationLayerIds();
-         * //userPreferencesService.loadPreferences(projectModel,currentUser.getUsername(),)
-         * features = new ArrayList<AnnotationFeature>(); for (AnnotationFeature feature:
-         * annotationService.listAnnotationFeature(projectModel.getObject())) { if
-         * (!hiddenLayerIds.contains(feature.getLayer().getId())) { features.add(feature); } }
-         */
 
         features = annotationService.listSupportedFeatures(projectModel.getObject());
 

@@ -17,6 +17,7 @@
  */
 package de.tudarmstadt.ukp.clarin.webanno.ui.curation.component;
 
+import static org.apache.wicket.event.Broadcast.BREADTH;
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState.FINISHED;
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState.IN_PROGRESS;
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.MANAGER;
@@ -27,13 +28,15 @@ import static org.apache.wicket.markup.head.JavaScriptHeaderItem.forReference;
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.invoke.MethodHandles;
+import java.util.List;
+import java.util.Optional;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Validate;
 import org.apache.uima.cas.CAS;
 import org.apache.wicket.ajax.AbstractDefaultAjaxBehavior;
 import org.apache.wicket.ajax.AjaxEventBehavior;
 import org.apache.wicket.ajax.AjaxRequestTarget;
-import org.apache.wicket.behavior.AbstractAjaxBehavior;
 import org.apache.wicket.extensions.ajax.markup.html.modal.ModalDialog;
 import org.apache.wicket.feedback.IFeedback;
 import org.apache.wicket.markup.head.IHeaderResponse;
@@ -44,17 +47,15 @@ import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
-import org.apache.wicket.request.Request;
 import org.apache.wicket.request.cycle.RequestCycle;
-import org.apache.wicket.request.handler.TextRequestHandler;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.wicketstuff.jquery.ui.settings.JQueryUILibrarySettings;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.action.ReadOnlyActionHandler;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
+import de.tudarmstadt.ukp.inception.support.uima.Range;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.comment.AnnotatorCommentDialogPanel;
 import de.tudarmstadt.ukp.clarin.webanno.brat.annotation.BratRequestUtils;
 import de.tudarmstadt.ukp.clarin.webanno.brat.message.GetCollectionInformationResponse;
@@ -64,28 +65,32 @@ import de.tudarmstadt.ukp.clarin.webanno.brat.schema.BratSchemaGenerator;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocument;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
+import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.model.AnnotatorSegmentState;
 import de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.render.CurationRenderer;
-import de.tudarmstadt.ukp.clarin.webanno.ui.curation.page.LegacyCurationPage;
 import de.tudarmstadt.ukp.inception.bootstrap.BootstrapModalDialog;
 import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
 import de.tudarmstadt.ukp.inception.diam.editor.DiamRequest;
 import de.tudarmstadt.ukp.inception.diam.editor.actions.EditorAjaxRequestHandlerBase;
 import de.tudarmstadt.ukp.inception.diam.editor.actions.LazyDetailsHandler;
 import de.tudarmstadt.ukp.inception.diam.editor.lazydetails.LazyDetailsLookupService;
-import de.tudarmstadt.ukp.inception.diam.model.DiamContext;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.AjaxResponse;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.DefaultAjaxResponse;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
-import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditor;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditorManager;
 import de.tudarmstadt.ukp.inception.rendering.request.RenderRequest;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.selection.EditorContentReplacedEvent;
+import de.tudarmstadt.ukp.inception.rendering.vmodel.VRange;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
+import de.tudarmstadt.ukp.inception.support.lambda.LambdaStringResourceBehavior;
 import de.tudarmstadt.ukp.inception.support.wicket.SymbolLabel;
 import de.tudarmstadt.ukp.inception.support.wicket.WicketUtil;
 
@@ -109,45 +114,28 @@ public abstract class BratSuggestionVisualizer
     private final ModalDialog modalDialog;
     private final BootstrapModalDialog confirmationDialog;
     private final AbstractDefaultAjaxBehavior controller;
-    private final AbstractAjaxBehavior collProvider;
-    private final AbstractAjaxBehavior docProvider;
+    private final LambdaStringResourceBehavior collProvider;
+    private final LambdaStringResourceBehavior docProvider;
 
-    private final int position;
+    private final DocumentEditorManager manager;
 
-    public BratSuggestionVisualizer(String aId, IModel<AnnotatorSegmentState> aModel, int aPosition)
+    public BratSuggestionVisualizer(String aId, DocumentEditorManager aManager,
+            IModel<AnnotatorSegmentState> aModel)
     {
         super(aId, aModel);
 
-        position = aPosition;
+        Validate.notNull(aManager, "Document editor manager must be provided");
+
+        manager = aManager;
 
         vis = new WebMarkupContainer("vis");
         vis.setOutputMarkupId(true);
 
         // Provides collection-level information like type definitions, styles, etc.
-        collProvider = new AbstractAjaxBehavior()
-        {
-            private static final long serialVersionUID = 1L;
-
-            @Override
-            public void onRequest()
-            {
-                getRequestCycle().scheduleRequestHandlerAfterCurrent(
-                        new TextRequestHandler("application/json", "UTF-8", getCollectionData()));
-            }
-        };
+        collProvider = new LambdaStringResourceBehavior(this::getCollectionData);
 
         // Provides the actual document contents
-        docProvider = new AbstractAjaxBehavior()
-        {
-            private static final long serialVersionUID = 1L;
-
-            @Override
-            public void onRequest()
-            {
-                getRequestCycle().scheduleRequestHandlerAfterCurrent(
-                        new TextRequestHandler("application/json", "UTF-8", getDocumentData()));
-            }
-        };
+        docProvider = new LambdaStringResourceBehavior(this::getDocumentData);
 
         modalDialog = new BootstrapModalDialog("modalDialog");
         queue(modalDialog);
@@ -173,7 +161,7 @@ public abstract class BratSuggestionVisualizer
         stateToggle.add(new SymbolLabel("state", annDoc.map(AnnotationDocument::getState)));
         add(stateToggle);
 
-        var commentSymbol = new Icon("commentSymbol", FontAwesome5IconType.comment_s);
+        var commentSymbol = new Icon("commentSymbol", FontAwesome7IconType.comment_s);
         commentSymbol.add(visibleWhen(
                 annDoc.map(AnnotationDocument::getAnnotatorComment).map(StringUtils::isNotBlank)));
         commentSymbol.add(
@@ -214,7 +202,8 @@ public abstract class BratSuggestionVisualizer
             break;
         }
 
-        ((LegacyCurationPage) getPage()).actionLoadDocument(aTarget);
+        send(getPage(), BREADTH,
+                new EditorContentReplacedEvent(getModelObject().getAnnotatorState(), aTarget));
     }
 
     private AnnotationDocument getAnnotationDocument()
@@ -229,7 +218,7 @@ public abstract class BratSuggestionVisualizer
         Project project = aSegment.getAnnotatorState().getProject();
         if (project.isAnonymousCuration()
                 && !projectService.hasRole(userService.getCurrentUser(), project, MANAGER)) {
-            return "Anonymized annotator " + (position + 1);
+            return "Anonymized annotator " + (aSegment.getPosition() + 1);
         }
 
         return aSegment.getUser().getUiName();
@@ -251,22 +240,15 @@ public abstract class BratSuggestionVisualizer
         return (IModel<AnnotatorSegmentState>) getDefaultModel();
     }
 
+    @Override
+    public IModel<AnnotatorState> getStateModel()
+    {
+        return getModel().map(AnnotatorSegmentState::getAnnotatorState);
+    }
+
     public AnnotatorSegmentState getModelObject()
     {
         return (AnnotatorSegmentState) getDefaultModelObject();
-    }
-
-    // The visualizer acts as the read-only DIAM context for its priority handlers: state and CAS
-    // are resolved per-segment (the annotator's own document), and its action handler rejects any
-    // mutation (editability is a property of the action handler).
-
-    private final AnnotationActionHandler actionHandler = new ReadOnlyActionHandler(
-            this::getEditorCas);
-
-    @Override
-    public AnnotatorState getAnnotatorState()
-    {
-        return getModelObject().getAnnotatorState();
     }
 
     @Override
@@ -278,19 +260,43 @@ public abstract class BratSuggestionVisualizer
     }
 
     @Override
+    public DocumentEditorManager getDocumentEditorManager()
+    {
+        return manager;
+    }
+
+    @Override
+    public Optional<DocumentEditor> getHostingEditor()
+    {
+        return manager.getActiveEditor();
+    }
+
+    @Override
     public AnnotationActionHandler getActionHandler()
     {
-        return actionHandler;
+        throw new UnsupportedOperationException(
+                "This editor is a passive viewer and has no action handler.");
+    }
+
+    @Override
+    public void actionLoadDocument(AjaxRequestTarget aTarget, int aFocus)
+    {
+        throw new UnsupportedOperationException(
+                "This editor is a passive viewer and does not load documents.");
+    }
+
+    @Override
+    public void actionJumpTo(AjaxRequestTarget aTarget, int aBegin, int aEnd,
+            List<VRange> aAdditionalPingRanges)
+    {
+        // Scrolling is not supported - this viewer always shows the whole segment
     }
 
     @Override
     public void actionShowSelectedDocument(AjaxRequestTarget aTarget, SourceDocument aDocument,
-            int aBegin, int aEnd)
-        throws IOException, AnnotationException
+            AnnotationSet aDataOwner, Range aRange, List<VRange> aAdditionalPingRanges)
     {
-        // Passive read-only view: the action handler ignores navigation, so this does not scroll
-        // and never drives the main editor.
-        getActionHandler().actionJump(aTarget, aBegin, aEnd);
+        // Selection of annotations is not supported
     }
 
     @Override
@@ -424,16 +430,15 @@ public abstract class BratSuggestionVisualizer
         }
 
         @Override
-        public AjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-                Request aRequest)
+        public AjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
         {
             try {
                 final var request = getRequest().getPostParameters();
                 final var paramId = BratRequestUtils.getVidFromRequest(request);
 
-                var context = aBehavior.getContext();
-                var state = context.getAnnotatorState();
-                var result = lazyDetailsLookupService.lookupLazyDetails(request, paramId,
+                var context = aRequest.getContext();
+                var state = context.getViewState();
+                var result = lazyDetailsLookupService.lookupLazyDetails(context, request, paramId,
                         context::getEditorCas, state.getDocument(), getModelObject().getUser(),
                         state.getWindowBeginOffset(), state.getWindowEndOffset());
                 attachResponse(aTarget, aRequest, toInterpretableJsonString(result));
@@ -453,8 +458,7 @@ public abstract class BratSuggestionVisualizer
         private static final long serialVersionUID = 8053988681869772378L;
 
         @Override
-        public AjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-                Request aRequest)
+        public AjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
         {
             try {
                 onClientEvent(aTarget);

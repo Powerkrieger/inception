@@ -28,11 +28,10 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.core.annotation.Order;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.image.Icon;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.clarin.webanno.ui.core.menu.ProjectMenuItem;
-import de.tudarmstadt.ukp.clarin.webanno.ui.curation.page.LegacyCurationPageMenuItem;
 import de.tudarmstadt.ukp.inception.preferences.PreferencesService;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
 import jakarta.servlet.ServletContext;
@@ -47,23 +46,23 @@ public class CurationPageMenuItem
     private final ProjectService projectService;
     private final ServletContext servletContext;
     private final PreferencesService preferencesService;
-    private final LegacyCurationPageMenuItem legacyCurationPageMenuItem;
+    private final SplitCurationPageMenuItem splitCurationPageMenuItem;
 
     public CurationPageMenuItem(UserDao aUserRepo, ProjectService aProjectService,
             ServletContext aServletContext, PreferencesService aPreferencesService,
-            LegacyCurationPageMenuItem aLegacyCurationPageMenuItem)
+            SplitCurationPageMenuItem aSplitCurationPageMenuItem)
     {
         userRepo = aUserRepo;
         projectService = aProjectService;
         servletContext = aServletContext;
         preferencesService = aPreferencesService;
-        legacyCurationPageMenuItem = aLegacyCurationPageMenuItem;
+        splitCurationPageMenuItem = aSplitCurationPageMenuItem;
     }
 
     @Override
     public String getPath()
     {
-        return "/curate";
+        return CurationPage.PAGE_PATH;
     }
 
     public String getUrl(Project aProject, long aDocumentId)
@@ -72,7 +71,7 @@ public class CurationPageMenuItem
         var prefs = preferencesService.loadDefaultTraitsForProject(KEY_CURATION_MANAGER_PREFS,
                 aProject);
         if (prefs.getCurationPageType() != INTEGRATED) {
-            return legacyCurationPageMenuItem.getUrl(aProject, aDocumentId);
+            return splitCurationPageMenuItem.getUrl(aProject, aDocumentId);
         }
 
         var p = aProject.getSlug() != null ? aProject.getSlug() : String.valueOf(aProject.getId());
@@ -83,7 +82,7 @@ public class CurationPageMenuItem
     @Override
     public Component getIcon(String aId)
     {
-        return new Icon(aId, FontAwesome5IconType.clipboard_s);
+        return new Icon(aId, FontAwesome7IconType.clipboard_s);
     }
 
     @Override
