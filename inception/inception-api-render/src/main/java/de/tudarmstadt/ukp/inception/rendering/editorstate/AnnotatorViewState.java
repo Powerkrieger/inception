@@ -26,6 +26,7 @@ import org.apache.uima.cas.text.AnnotationFS;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.ScriptDirection;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
+import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
 import de.tudarmstadt.ukp.inception.rendering.paging.PagingStrategy;
 import de.tudarmstadt.ukp.inception.rendering.paging.Unit;
 import de.tudarmstadt.ukp.inception.rendering.selection.FocusPosition;
@@ -158,6 +159,12 @@ public interface AnnotatorViewState
     SourceDocument getDocument();
 
     Project getProject();
+
+    /**
+     * @deprecated We should introduce a {@code getDataOwner(AnnotationSet)} instead
+     */
+    @Deprecated
+    User getUser();
 
     // ---------------------------------------------------------------------------------------------
     // Selection

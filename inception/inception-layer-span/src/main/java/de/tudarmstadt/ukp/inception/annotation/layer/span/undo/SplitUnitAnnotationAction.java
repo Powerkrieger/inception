@@ -30,9 +30,9 @@ import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.actionbar.undo.actions.Un
 import de.tudarmstadt.ukp.inception.annotation.layer.span.SegmentationUnitAdapter;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.UnitSplitEvent;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanAdapter;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.support.logging.LogMessage;
 
 public class SplitUnitAnnotationAction
@@ -64,7 +64,8 @@ public class SplitUnitAnnotationAction
     {
         var adapter = (SpanAdapter) aSchemaService.getAdapter(getLayer());
         var unitAdapter = new SegmentationUnitAdapter(adapter);
-        unitAdapter.unSplit(getDocument(), getUser(), aCas, getVid(), oldBegin, oldEnd, newUnit);
+        unitAdapter.unSplit(getDocument(), getDataOwner(), aCas, getVid(), oldBegin, oldEnd,
+                newUnit);
         aMessages.add(LogMessage.info(this, "[%s] un-split", getLayer().getUiName()));
         return Optional.of(new PostActionScrollToAndSelect(getVid()));
     }
@@ -76,7 +77,8 @@ public class SplitUnitAnnotationAction
     {
         var adapter = (SpanAdapter) aSchemaService.getAdapter(getLayer());
         var unitAdapter = new SegmentationUnitAdapter(adapter);
-        unitAdapter.unMerge(getDocument(), getUser(), aCas, getVid(), newBegin, newEnd, newUnit);
+        unitAdapter.unMerge(getDocument(), getDataOwner(), aCas, getVid(), newBegin, newEnd,
+                newUnit);
         aMessages.add(LogMessage.info(this, "[%s] un-merged", getLayer().getUiName()));
         return Optional.of(new PostActionScrollToAndSelect(getVid()));
     }

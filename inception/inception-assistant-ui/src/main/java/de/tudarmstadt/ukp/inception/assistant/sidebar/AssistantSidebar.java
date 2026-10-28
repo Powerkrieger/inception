@@ -28,16 +28,13 @@ import org.apache.wicket.model.Model;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 import org.wicketstuff.event.annotation.OnEvent;
 
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome6IconType;
-import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
-import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
 import de.tudarmstadt.ukp.inception.annotation.events.FeatureValueUpdatedEvent;
 import de.tudarmstadt.ukp.inception.assistant.AssistantService;
 import de.tudarmstadt.ukp.inception.assistant.documents.DocumentQueryService;
 import de.tudarmstadt.ukp.inception.bootstrap.IconToggleBox;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
 import de.tudarmstadt.ukp.inception.preferences.PreferencesService;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.scheduling.SchedulingService;
@@ -45,6 +42,7 @@ import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxFormComponentUpdati
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxFormSubmittingBehavior;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaModelAdapter;
+import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.SidebarContext;
 
 public class AssistantSidebar
     extends AnnotationSidebar_ImplBase
@@ -62,20 +60,19 @@ public class AssistantSidebar
     private CompoundPropertyModel<AssistantSidebarPrefs> sidebarPrefs;
     private IModel<Boolean> debugMode;
 
-    public AssistantSidebar(String aId, AnnotationActionHandler aActionHandler,
-            CasProvider aCasProvider, AnnotationPageBase2 aAnnotationPage)
+    public AssistantSidebar(String aId, SidebarContext aContext)
     {
-        super(aId, aActionHandler, aCasProvider, aAnnotationPage);
+        super(aId, aContext);
 
         sidebarPrefs = new CompoundPropertyModel<>(Model.of(loadSidebarPrefs()));
 
         debugMode = new LambdaModelAdapter<>( //
                 () -> assistantService.isDebugMode(userService.getCurrentUsername(),
-                        getModelObject().getProject()), //
+                        getContext().getProject()), //
                 onOff -> assistantService.setDebugMode(userService.getCurrentUsername(),
-                        getModelObject().getProject(), onOff));
+                        getContext().getProject(), onOff));
 
-        chat = new AssistantPanel("chat");
+        chat = new AssistantPanel("chat", getDocumentEditorManager());
         queue(chat);
 
         var form = new Form<>("form", sidebarPrefs);
@@ -86,17 +83,17 @@ public class AssistantSidebar
         form.add(new LambdaAjaxLink("clear", this::actionClear));
 
         form.add(new IconToggleBox("watchMode") //
-                .setCheckedIcon(FontAwesome6IconType.eye_s) //
+                .setCheckedIcon(FontAwesome7IconType.eye_s) //
                 .setCheckedTitle(Model.of("Watching annotation actions and commenting")) //
-                .setUncheckedIcon(FontAwesome6IconType.eye_slash_s) //
+                .setUncheckedIcon(FontAwesome7IconType.eye_slash_s) //
                 .setUncheckedTitle(Model.of("Not watching annotation actions")) //
                 .add(new LambdaAjaxFormSubmittingBehavior(CHANGE_EVENT,
                         _target -> saveSidebarPrefs())));
 
         form.add(new IconToggleBox("debugMode") //
-                .setCheckedIcon(FontAwesome6IconType.bug_s) //
+                .setCheckedIcon(FontAwesome7IconType.bug_s) //
                 .setCheckedTitle(Model.of("Recording and showing internal messages")) //
-                .setUncheckedIcon(FontAwesome6IconType.bug_slash_s) //
+                .setUncheckedIcon(FontAwesome7IconType.bug_slash_s) //
                 .setUncheckedTitle(Model.of("Not recoording and showing internal messages")) //
                 .setModel(debugMode) //
                 .add(new LambdaAjaxFormComponentUpdatingBehavior(CHANGE_EVENT,
@@ -107,25 +104,25 @@ public class AssistantSidebar
     {
         var sessionOwner = userService.getCurrentUser();
         return preferencesService.loadTraitsForUserAndProject(KEY_ASSISTANT_SIDEBAR_PREFS,
-                sessionOwner, getModelObject().getProject());
+                sessionOwner, getContext().getProject());
     }
 
     private void saveSidebarPrefs()
     {
         var sessionOwner = userService.getCurrentUser();
         preferencesService.saveTraitsForUserAndProject(KEY_ASSISTANT_SIDEBAR_PREFS, sessionOwner,
-                getModelObject().getProject(), sidebarPrefs.getObject());
+                getContext().getProject(), sidebarPrefs.getObject());
     }
 
     private void actionReindex(AjaxRequestTarget aTarget)
     {
-        documentQueryService.rebuildIndexAsync(getModelObject().getProject());
+        documentQueryService.rebuildIndexAsync(getContext().getProject());
     }
 
     private void actionClear(AjaxRequestTarget aTarget)
     {
         var sessionOwner = userService.getCurrentUsername();
-        var project = getModelObject().getProject();
+        var project = getContext().getProject();
         assistantService.clearConversation(sessionOwner, project);
     }
 

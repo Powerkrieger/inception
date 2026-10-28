@@ -23,6 +23,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -34,6 +35,7 @@ import org.testcontainers.utility.DockerImageName;
 // SQL Server 2025 - latest release; mainstream support to 2031-01-06, EOL 2036-01-06
 // Note: the 2025-latest tag floats, so the exact patch level shifts over time
 @Testcontainers(disabledWithoutDocker = true)
+@EnabledOnOs(architectures = { "amd64", "x86_64" })
 class InceptionMSSQLServer_Latest_IntegrationTest
 {
     static final DockerImageName image = DockerImageName.parse("mcr.microsoft.com/mssql/server")

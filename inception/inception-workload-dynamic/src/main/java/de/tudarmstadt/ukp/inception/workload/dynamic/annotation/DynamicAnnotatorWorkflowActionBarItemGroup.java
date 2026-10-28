@@ -22,9 +22,6 @@ import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentState.FI
 import static de.tudarmstadt.ukp.clarin.webanno.model.AnnotationDocumentStateChangeFlag.EXPLICIT_ANNOTATOR_USER_ACTION;
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.enabledWhen;
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.visibleWhen;
-import static wicket.contrib.input.events.EventType.click;
-import static wicket.contrib.input.events.key.KeyType.Ctrl;
-import static wicket.contrib.input.events.key.KeyType.End;
 
 import java.io.IOException;
 
@@ -42,7 +39,9 @@ import org.apache.wicket.model.Model;
 import org.apache.wicket.spring.injection.annot.SpringBean;
 
 import de.agilecoders.wicket.core.markup.html.bootstrap.behavior.CssClassNameModifier;
-import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome5IconType;
+import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarContext;
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.DocumentStateHandler;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.finish.FinishDocumentDialogContent;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.finish.FinishDocumentDialogModel;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.exception.ValidationException;
@@ -51,16 +50,15 @@ import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
 import de.tudarmstadt.ukp.inception.bootstrap.BootstrapModalDialog;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditor;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
-import de.tudarmstadt.ukp.inception.support.wicket.input.InputBehavior;
 import de.tudarmstadt.ukp.inception.workload.dynamic.DynamicWorkloadExtension;
 import de.tudarmstadt.ukp.inception.workload.dynamic.trait.DynamicWorkloadTraits;
 import de.tudarmstadt.ukp.inception.workload.dynamic.workflow.WorkflowExtensionPoint;
 import de.tudarmstadt.ukp.inception.workload.model.WorkloadManagementService;
 import de.tudarmstadt.ukp.inception.workload.ui.ResetAnnotationDocumentConfirmationDialogContentPanel;
-import wicket.contrib.input.events.key.KeyType;
 
 /**
  * This is only enabled for annotators of a project with the dynamic workload enabled. An annotator
@@ -70,12 +68,14 @@ import wicket.contrib.input.events.key.KeyType;
  */
 public class DynamicAnnotatorWorkflowActionBarItemGroup
     extends Panel
+    implements DocumentStateHandler
 {
     private static final long serialVersionUID = 9215276761731631710L;
 
     private AnnotationPageBase page;
 
     private ModalDialog dialog;
+    private final DocumentEditor editorContext;
     private final IModel<DynamicWorkloadTraits> traits;
 
     // SpringBeans
@@ -85,15 +85,16 @@ public class DynamicAnnotatorWorkflowActionBarItemGroup
     private @SpringBean WorkloadManagementService workloadManagementService;
     private @SpringBean WorkflowExtensionPoint workflowExtensionPoint;
 
-    public DynamicAnnotatorWorkflowActionBarItemGroup(String aId, AnnotationPageBase aPage)
+    public DynamicAnnotatorWorkflowActionBarItemGroup(String aId, ActionBarContext aContext)
     {
         super(aId);
 
-        page = aPage;
+        page = aContext.page();
+        editorContext = aContext.editor();
 
-        traits = LoadableDetachableModel.of(() -> dynamicWorkloadExtension
-                .readTraits(workloadManagementService.loadOrCreateWorkloadManagerConfiguration(
-                        page.getModelObject().getProject())));
+        traits = LoadableDetachableModel
+                .of(() -> dynamicWorkloadExtension.readTraits(workloadManagementService
+                        .loadOrCreateWorkloadManagerConfiguration(getModelObject().getProject())));
 
         dialog = new BootstrapModalDialog("dialog");
         add(dialog);
@@ -110,28 +111,33 @@ public class DynamicAnnotatorWorkflowActionBarItemGroup
     {
         var link = new LambdaAjaxLink(aId, this::actionFinishDocument);
         link.setOutputMarkupId(true);
-        link.add(enabledWhen(page::isEditable));
-        link.add(new InputBehavior(new KeyType[] { Ctrl, End }, click));
+        link.add(enabledWhen(this::isHostEditorEditable));
         return link;
     }
 
     private Component createResetDocumentLink(String aString)
     {
         var link = new LambdaAjaxLink(aString, this::actionRequestResetDocumentConfirmation);
-        link.add(enabledWhen(() -> page.isEditable()));
+        link.add(enabledWhen(this::isHostEditorEditable));
         link.add(visibleWhen(
                 traits.map(DynamicWorkloadTraits::isDocumentResetAllowed).orElse(false)));
         return link;
     }
 
+    private boolean isHostEditorEditable()
+    {
+        var context = editorContext;
+        return context != null && context.getActionHandler().isEditable();
+    }
+
     public AnnotatorState getModelObject()
     {
-        return page.getModelObject();
+        return editorContext.getAnnotatorState();
     }
 
     public String getStateClass()
     {
-        return FontAwesome5IconType.check_circle_r.cssClassName();
+        return FontAwesome7IconType.check_circle_r.cssClassName();
     }
 
     protected void actionRequestResetDocumentConfirmation(AjaxRequestTarget aTarget)
@@ -140,16 +146,29 @@ public class DynamicAnnotatorWorkflowActionBarItemGroup
         var content = new ResetAnnotationDocumentConfirmationDialogContentPanel(
                 ModalDialog.CONTENT_ID);
 
-        content.setExpectedResponseModel(
-                page.getModel().map(AnnotatorState::getDocument).map(SourceDocument::getName));
+        content.setExpectedResponseModel(editorContext.getStateModel()
+                .map(AnnotatorState::getDocument).map(SourceDocument::getName));
         content.setConfirmAction(_target -> {
-            var state = page.getModelObject();
+            editorContext.getActionHandler().ensureIsEditable();
+
+            var state = getModelObject();
             documentService.resetAnnotationCas(state.getDocument(), state.getUser(),
                     EXPLICIT_ANNOTATOR_USER_ACTION);
-            page.actionLoadDocument(_target);
+            editorContext.actionLoadDocument(_target);
         });
 
         dialog.open(content, aTarget);
+    }
+
+    @Override
+    public void actionFinishOrReopenDocument(AjaxRequestTarget aTarget)
+        throws IOException, AnnotationException
+    {
+        if (getModelObject().getDocument() == null || !isHostEditorEditable()) {
+            return;
+        }
+
+        actionFinishDocument(aTarget);
     }
 
     /**
@@ -163,7 +182,7 @@ public class DynamicAnnotatorWorkflowActionBarItemGroup
         var traits = dynamicWorkloadExtension.readTraits(manager);
 
         try {
-            page.actionValidateDocument(aTarget, page.getEditorCas());
+            page.actionValidateDocument(aTarget, editorContext);
         }
         catch (ValidationException e) {
             page.error("Document cannot be marked as finished: " + e.getMessage());
@@ -228,9 +247,9 @@ public class DynamicAnnotatorWorkflowActionBarItemGroup
         }
 
         // Assign a new document with actionLoadDocument
-        page.getModelObject().setDocument(nextDocument.get(),
+        state.setDocument(nextDocument.get(),
                 documentService.listSourceDocuments(nextDocument.get().getProject()));
-        page.actionLoadDocument(aTarget);
-        aTarget.add(page);
+
+        editorContext.actionLoadDocument(aTarget);
     }
 }

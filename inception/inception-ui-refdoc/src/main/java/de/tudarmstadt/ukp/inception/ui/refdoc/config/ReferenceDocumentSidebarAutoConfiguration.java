@@ -17,19 +17,34 @@
  */
 package de.tudarmstadt.ukp.inception.ui.refdoc.config;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import de.tudarmstadt.ukp.inception.ui.refdoc.ReferenceDocumentNavigatorActionBarExtension;
 import de.tudarmstadt.ukp.inception.ui.refdoc.ReferenceDocumentSidebarFactory;
+import de.tudarmstadt.ukp.inception.workload.model.WorkloadManagementService;
 
 @ConditionalOnWebApplication
 @Configuration
+@ConditionalOnProperty( //
+        prefix = "ui.reference-document", //
+        name = "enabled", //
+        havingValue = "true", //
+        matchIfMissing = false)
 public class ReferenceDocumentSidebarAutoConfiguration
 {
     @Bean
-    public ReferenceDocumentSidebarFactory referenceDocumentSidebarFactory()
+    public ReferenceDocumentSidebarFactory referenceDocumentSidebarFactory(
+            WorkloadManagementService aWorkloadManagementService)
     {
-        return new ReferenceDocumentSidebarFactory();
+        return new ReferenceDocumentSidebarFactory(aWorkloadManagementService);
+    }
+
+    @Bean
+    public ReferenceDocumentNavigatorActionBarExtension referenceDocumentNavigatorActionBarExtension()
+    {
+        return new ReferenceDocumentNavigatorActionBarExtension();
     }
 }

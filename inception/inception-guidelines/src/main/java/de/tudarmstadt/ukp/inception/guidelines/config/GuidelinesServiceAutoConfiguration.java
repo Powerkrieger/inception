@@ -17,6 +17,7 @@
  */
 package de.tudarmstadt.ukp.inception.guidelines.config;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -25,6 +26,7 @@ import de.tudarmstadt.ukp.inception.guidelines.GuidelinesService;
 import de.tudarmstadt.ukp.inception.guidelines.GuidelinesServiceImpl;
 import de.tudarmstadt.ukp.inception.guidelines.exporters.GuidelinesExporter;
 import de.tudarmstadt.ukp.inception.guidelines.settings.ProjectGuidelinesMenuItem;
+import de.tudarmstadt.ukp.inception.guidelines.sidebar.GuidelinesSidebarFactory;
 
 @Configuration
 public class GuidelinesServiceAutoConfiguration
@@ -45,5 +47,12 @@ public class GuidelinesServiceAutoConfiguration
     public ProjectGuidelinesMenuItem projectGuidelinesMenuItem()
     {
         return new ProjectGuidelinesMenuItem();
+    }
+
+    @ConditionalOnWebApplication
+    @Bean
+    public GuidelinesSidebarFactory guidelinesSidebarFactory(GuidelinesService aGuidelinesService)
+    {
+        return new GuidelinesSidebarFactory(aGuidelinesService);
     }
 }

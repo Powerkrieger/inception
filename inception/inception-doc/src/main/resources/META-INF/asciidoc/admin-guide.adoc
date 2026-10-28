@@ -132,7 +132,7 @@ include::{include-dir}settings_documentmetadata.adoc[leveloffset=+1]
 
 include::{include-dir}settings_concept-linking.adoc[leveloffset=+1]
 
-include::{include-dir}settings_curation.adoc[leveloffset=+1]
+include::{include-dir}settings_agreement.adoc[leveloffset=+1]
 
 include::{include-dir}settings_knowledgebase.adoc[leveloffset=+1]
 
@@ -153,3 +153,5 @@ include::{include-dir}settings_versioning.adoc[leveloffset=+1]
 include::{include-dir}settings_websocket.adoc[leveloffset=+1]
 
 include::{include-dir}settings_assistant.adoc[leveloffset=+1]
+
+include::{include-dir}settings_reference_document.adoc[leveloffset=+1]

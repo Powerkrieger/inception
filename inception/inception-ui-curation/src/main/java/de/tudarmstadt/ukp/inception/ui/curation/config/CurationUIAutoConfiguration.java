@@ -21,11 +21,22 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.rendering.PreRenderer;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
-import de.tudarmstadt.ukp.clarin.webanno.ui.curation.page.LegacyCurationPageMenuItem;
+import de.tudarmstadt.ukp.clarin.webanno.ui.curation.actionbar.CurationDocumentNavigatorActionBarExtension;
+import de.tudarmstadt.ukp.clarin.webanno.ui.curation.actionbar.CurationUndoActionBarExtension;
+import de.tudarmstadt.ukp.clarin.webanno.ui.curation.actionbar.CurationWorkflowActionBarExtension;
+import de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.render.CurationRenderer;
+import de.tudarmstadt.ukp.clarin.webanno.ui.curation.component.render.CurationRendererImpl;
 import de.tudarmstadt.ukp.inception.preferences.PreferencesService;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
+import de.tudarmstadt.ukp.inception.rendering.coloring.ColoringService;
+import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
+import de.tudarmstadt.ukp.inception.schema.api.config.AnnotationSchemaProperties;
+import de.tudarmstadt.ukp.inception.ui.curation.editor.SplitCurationEditorFactory;
 import de.tudarmstadt.ukp.inception.ui.curation.page.CurationPageMenuItem;
+import de.tudarmstadt.ukp.inception.ui.curation.page.SplitCurationPageMenuItem;
+import de.tudarmstadt.ukp.inception.ui.curation.sidebar.overview.CurationUnitOverviewSidebarFactory;
 import jakarta.servlet.ServletContext;
 
 @ConditionalOnWebApplication
@@ -36,9 +47,61 @@ public class CurationUIAutoConfiguration
     public CurationPageMenuItem curationPageMenuItem(UserDao aUserRepo,
             ProjectService aProjectService, ServletContext aServletContext,
             PreferencesService aPreferencesService,
-            LegacyCurationPageMenuItem aLegacyCurationPageMenuItem)
+            SplitCurationPageMenuItem aSplitCurationPageMenuItem)
     {
         return new CurationPageMenuItem(aUserRepo, aProjectService, aServletContext,
-                aPreferencesService, aLegacyCurationPageMenuItem);
+                aPreferencesService, aSplitCurationPageMenuItem);
+    }
+
+    @Bean
+    public SplitCurationPageMenuItem splitCurationPageMenuItem(UserDao aUserRepo,
+            ProjectService aProjectService, ServletContext aServletContext,
+            PreferencesService aPreferencesService)
+    {
+        return new SplitCurationPageMenuItem(aUserRepo, aProjectService, aServletContext,
+                aPreferencesService);
+    }
+
+    @Bean
+    public CurationUndoActionBarExtension curationUndoActionBarExtension()
+    {
+        return new CurationUndoActionBarExtension();
+    }
+
+    @Bean
+    public CurationDocumentNavigatorActionBarExtension curationDocumentNavigatorActionBarExtension()
+    {
+        return new CurationDocumentNavigatorActionBarExtension();
+    }
+
+    @Bean
+    public CurationWorkflowActionBarExtension curationWorkflowActionBarExtension()
+    {
+        return new CurationWorkflowActionBarExtension();
+    }
+
+    @Bean
+    public CurationRenderer curationRenderer(PreRenderer aPreRenderer,
+            AnnotationSchemaService aSchemaService, ColoringService aColoringService,
+            AnnotationSchemaProperties aAnnotationEditorProperties, UserDao aUserService)
+    {
+        return new CurationRendererImpl(aPreRenderer, aSchemaService, aColoringService,
+                aAnnotationEditorProperties, aUserService);
+    }
+
+    /**
+     * The bean name has to be {@link SplitCurationEditorFactory#ID} - editor factories are looked
+     * up by bean name, and the split-curation page pins this one by that id.
+     */
+    @Bean(name = SplitCurationEditorFactory.ID)
+    public SplitCurationEditorFactory splitCurationEditorFactory()
+    {
+        return new SplitCurationEditorFactory();
+    }
+
+    @Bean
+    public CurationUnitOverviewSidebarFactory curationUnitOverviewSidebarFactory()
+    {
+        return new CurationUnitOverviewSidebarFactory();
     }
 }

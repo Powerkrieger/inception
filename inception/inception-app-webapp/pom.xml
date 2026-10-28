@@ -21,7 +21,7 @@
   <parent>
     <groupId>de.tudarmstadt.ukp.inception.app</groupId>
     <artifactId>inception-app</artifactId>
-    <version>42.0-SNAPSHOT</version>
+    <version>43.0-SNAPSHOT</version>
     <relativePath>..</relativePath>
   </parent>
 
@@ -491,11 +491,6 @@
     <dependency>
       <groupId>de.tudarmstadt.ukp.inception.app</groupId>
       <artifactId>inception-html-apache-annotator-editor</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>de.tudarmstadt.ukp.inception.app</groupId>
-      <artifactId>inception-html-recogito-editor</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -1123,6 +1118,11 @@
               <artifactId>asciidoctorj-diagram</artifactId>
               <version>${asciidoctor-diagram.version}</version>
             </dependency>
+            <dependency>
+              <groupId>org.asciidoctor</groupId>
+              <artifactId>asciidoctorj-diagram-plantuml</artifactId>
+              <version>${asciidoctor-diagram-plantuml.version}</version>
+            </dependency>
           </dependencies>
         </plugin>
         <plugin>
@@ -1229,7 +1229,6 @@
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-brat-editor</usedDependency>
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-external-editor</usedDependency>
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-html-apache-annotator-editor</usedDependency>
-              <usedDependency>de.tudarmstadt.ukp.inception.app:inception-html-recogito-editor</usedDependency>
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-pdf-editor2</usedDependency>
               <!-- INCEpTION IO Modules - used via Spring -->
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-io-bioc</usedDependency>
@@ -1590,6 +1589,31 @@
                   </configuration>
                 </execution>
               </executions>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+    <profile>
+      <id>test-scenarios</id>
+      <dependencies>
+        <dependency>
+          <groupId>de.tudarmstadt.ukp.inception.app</groupId>
+          <artifactId>inception-test-scenarios</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+      </dependencies>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-dependency-plugin</artifactId>
+              <configuration>
+                <usedDependencies combine.children="append">
+                  <usedDependency>de.tudarmstadt.ukp.inception.app:inception-test-scenarios</usedDependency>
+                </usedDependencies>
+              </configuration>
             </plugin>
           </plugins>
         </pluginManagement>

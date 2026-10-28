@@ -19,6 +19,7 @@ package de.tudarmstadt.ukp.inception.curation.config;
 
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -38,10 +39,10 @@ public class CurationDocumentServiceAutoConfiguration
 {
     @Bean(CurationDocumentService.SERVICE_NAME)
     public CurationDocumentService curationDocumentService(CasStorageService aCasStorageService,
-            AnnotationSchemaService aAnnotationService, CurationProperties aCurationProperties,
-            EntityManager aEntityManager, DocumentService aDocumentService)
+            AnnotationSchemaService aAnnotationService, EntityManager aEntityManager,
+            DocumentService aDocumentService, ApplicationEventPublisher aApplicationEventPublisher)
     {
         return new CurationDocumentServiceImpl(aCasStorageService, aAnnotationService,
-                aCurationProperties, aEntityManager, aDocumentService);
+                aEntityManager, aDocumentService, aApplicationEventPublisher);
     }
 }

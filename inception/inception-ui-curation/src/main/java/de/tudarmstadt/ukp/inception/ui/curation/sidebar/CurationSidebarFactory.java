@@ -26,17 +26,13 @@ import org.apache.wicket.model.IModel;
 import org.slf4j.Logger;
 import org.springframework.core.annotation.Order;
 
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
-import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasProvider;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
-import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.AnnotationPageBase2;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebarFactory_ImplBase;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.AnnotationSidebar_ImplBase;
-import de.tudarmstadt.ukp.inception.curation.sidebar.CurationSidebarProperties;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
+import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.sidebar.SidebarContext;
+import de.tudarmstadt.ukp.inception.ui.curation.page.CuratableDocumentPage;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
-import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
-import de.tudarmstadt.ukp.inception.ui.curation.page.CurationPage;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorViewState;
 import de.tudarmstadt.ukp.inception.ui.curation.sidebar.config.CurationSidebarAutoConfiguration;
 
 /**
@@ -53,14 +49,11 @@ public class CurationSidebarFactory
 
     private final ProjectService projectService;
     private final UserDao userService;
-    private final CurationSidebarProperties curationSidebarProperties;
 
-    public CurationSidebarFactory(ProjectService aProjectService, UserDao aUserService,
-            CurationSidebarProperties aCurationSidebarProperties)
+    public CurationSidebarFactory(ProjectService aProjectService, UserDao aUserService)
     {
         projectService = aProjectService;
         userService = aUserService;
-        curationSidebarProperties = aCurationSidebarProperties;
     }
 
     @Override
@@ -72,32 +65,33 @@ public class CurationSidebarFactory
     @Override
     public String getDescription()
     {
-        return "Allows curation via the annotation page. Only available to curators.";
+        return "Allows controlling curation options. Only available to curators.";
     }
 
     @Override
-    public Component createIcon(String aId, IModel<AnnotatorState> aState)
+    public Component createIcon(String aId, IModel<AnnotatorViewState> aState)
     {
         return new CurationSidebarIcon(aId, aState);
     }
 
     @Override
-    public AnnotationSidebar_ImplBase create(String aId, AnnotationActionHandler aActionHandler,
-            CasProvider aCasProvider, AnnotationPageBase2 aAnnotationPage)
+    public AnnotationSidebar_ImplBase create(String aId, SidebarContext aContext)
     {
-        return new CurationSidebar(aId, aActionHandler, aCasProvider, aAnnotationPage);
+        return new CurationSidebar(aId, aContext);
     }
 
     @Override
-    public boolean accepts(AnnotationPageBase aContext)
+    public boolean accepts(SidebarContext aContext)
     {
-        if (aContext instanceof CurationPage) {
-            var state = aContext.getModelObject();
-            var sessionOwner = userService.getCurrentUsername();
-            var isCurator = projectService.hasRole(state.getUser(), state.getProject(), CURATOR);
-            return isCurator && state.getUser().getUsername().equals(sessionOwner);
+        if (!(aContext.page() instanceof CuratableDocumentPage)) {
+            return false;
         }
 
-        return false;
+        var project = aContext.getProject();
+        if (project == null) {
+            return false;
+        }
+
+        return projectService.hasRole(userService.getSessionOwnerName(), project, CURATOR);
     }
 }
