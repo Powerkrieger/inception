@@ -18,14 +18,15 @@
 package de.tudarmstadt.ukp.inception.workload.dynamic.annotation;
 
 import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.CURATOR;
+import static de.tudarmstadt.ukp.clarin.webanno.model.PermissionLevel.MANAGER;
 import static de.tudarmstadt.ukp.inception.workload.dynamic.DynamicWorkloadExtension.DYNAMIC_WORKLOAD_MANAGER_EXTENSION_ID;
 
 import org.apache.wicket.markup.html.panel.Panel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarContext;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarExtension;
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.inception.project.api.ProjectService;
 import de.tudarmstadt.ukp.inception.workload.dynamic.config.DynamicWorkloadManagerAutoConfiguration;
@@ -68,25 +69,33 @@ public class DynamicWorkflowActionBarExtension
     }
 
     @Override
-    public boolean accepts(AnnotationPageBase aPage)
+    public boolean accepts(ActionBarContext aContext)
     {
-        // Issue #1813 fix
-        var project = aPage.getModelObject().getProject();
+        if (!aContext.hasDocument()) {
+            return false;
+        }
+
+        if (!aContext.editor().isEditor()) {
+            return false;
+        }
+
+        var project = aContext.editor().getProject();
         if (project == null) {
             return false;
         }
 
-        // Curator are excluded from the feature
+        // Curators and managers are excluded from the workflow - they may open any document (see
+        // DynamicWorkloadExtension.isDocumentRandomAccessAllowed)
         var sessionOwner = userService.getCurrentUser();
         var workloadConfig = workloadManagementService
                 .loadOrCreateWorkloadManagerConfiguration(project);
         return DYNAMIC_WORKLOAD_MANAGER_EXTENSION_ID.equals(workloadConfig.getType())
-                && !projectService.hasRole(sessionOwner, project, CURATOR);
+                && !projectService.hasRole(sessionOwner, project, CURATOR, MANAGER);
     }
 
     @Override
-    public Panel createActionBarItem(String aID, AnnotationPageBase aAnnotationPageBase)
+    public Panel createActionBarItem(String aID, ActionBarContext aContext)
     {
-        return new DynamicAnnotatorWorkflowActionBarItemGroup(aID, aAnnotationPageBase);
+        return new DynamicAnnotatorWorkflowActionBarItemGroup(aID, aContext);
     }
 }

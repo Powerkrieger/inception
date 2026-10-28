@@ -20,7 +20,7 @@
   <parent>
     <groupId>de.tudarmstadt.ukp.inception.app</groupId>
     <artifactId>inception</artifactId>
-    <version>42.0-SNAPSHOT</version>
+    <version>43.0-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
@@ -221,7 +221,7 @@
       <dependency>
         <groupId>jaxen</groupId>
         <artifactId>jaxen</artifactId>
-        <version>${javax.activation-api-version}</version>
+        <version>${jaxen.version}</version>
         <exclusions>
           <exclusion>
             <artifactId>dom4j</artifactId>
@@ -296,6 +296,17 @@
           <exclusion>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
+          </exclusion>
+          <!--
+            mock-oauth2-server does not use kotlinx-serialization itself, but pulls it in
+            transitively. Merely having it on the test classpath makes Spring auto-register
+            KotlinSerializationJsonMessageConverter ahead of the Jackson converter, which then
+            fails for every plain Java message class (e.g. MTaskStateUpdate) sent over
+            WebSocket/STOMP.
+          -->
+          <exclusion>
+            <groupId>org.jetbrains.kotlinx</groupId>
+            <artifactId>kotlinx-serialization-json-jvm</artifactId>
           </exclusion>
         </exclusions>
       </dependency>
@@ -1333,6 +1344,11 @@
             <artifactId>jcl-over-slf4j</artifactId>
           </exclusion>
         </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>org.eclipse.rdf4j</groupId>
+        <artifactId>rdf4j-http-client-api</artifactId>
+        <version>${rdf4j.version}</version>
       </dependency>
       <dependency>
         <groupId>org.eclipse.rdf4j</groupId>

@@ -47,12 +47,12 @@ import org.springframework.beans.factory.BeanNameAware;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
-import de.tudarmstadt.ukp.inception.editor.action.AnnotationActionHandler;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationActionHandler;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.FeatureState;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.SuggestionState;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VLazyDetailGroup;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.schema.api.adapter.TypeAdapter;
 import de.tudarmstadt.ukp.inception.support.extensionpoint.Extension;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
@@ -276,12 +276,13 @@ public interface FeatureSupport<T>
      */
     default List<String> renderFeatureValues(AnnotationFeature aFeature, FeatureStructure aFs)
     {
-        var labelFeature = aFs.getType().getFeatureByBaseName(aFeature.getName());
-        if (labelFeature == null) {
+        var maybeLabelFeature = FeatureUtil.getFeature(aFs, aFeature);
+        if (maybeLabelFeature.isEmpty()) {
             return emptyList();
         }
 
-        var featureValue = renderFeatureValue(aFeature, aFs.getFeatureValueAsString(labelFeature));
+        var featureValue = renderFeatureValue(aFeature,
+                aFs.getFeatureValueAsString(maybeLabelFeature.get()));
         if (featureValue == null) {
             return emptyList();
         }
@@ -363,7 +364,7 @@ public interface FeatureSupport<T>
     {
         Object value;
 
-        var f = aFS.getType().getFeatureByBaseName(aFeature.getName());
+        var f = FeatureUtil.getFeature(aFS, aFeature).orElse(null);
 
         if (f == null) {
             value = getNullFeatureValue(aFeature, aFS);
@@ -503,12 +504,9 @@ public interface FeatureSupport<T>
     default FeatureStructure getFS(CAS aCas, AnnotationFeature aFeature, int aAddress)
     {
         var fs = selectFsByAddr(aCas, aAddress);
-        var feature = fs.getType().getFeatureByBaseName(aFeature.getName());
 
-        if (feature == null) {
-            throw new IllegalArgumentException("On [" + fs.getType().getName() + "] the feature ["
-                    + aFeature.getName() + "] does not exist.");
-        }
+        FeatureUtil.getMandatoryFeature(fs, aFeature);
+
         return fs;
     }
 

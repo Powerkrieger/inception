@@ -27,13 +27,12 @@ import org.apache.uima.cas.text.AnnotationFS;
 import org.apache.uima.fit.util.CasUtil;
 import org.apache.uima.fit.util.FSUtil;
 import org.apache.wicket.Component;
-import org.apache.wicket.Page;
-import org.apache.wicket.markup.html.basic.Label;
 import org.apache.wicket.model.IModel;
 
-import de.tudarmstadt.ukp.inception.diam.model.DiamContext;
 import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Sentence;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotatorState;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
+import de.tudarmstadt.ukp.inception.rendering.paging.PagingStrategy_ImplBase;
 import de.tudarmstadt.ukp.inception.rendering.paging.Unit;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 
@@ -86,20 +85,12 @@ public class SentenceOrientedPagingStrategy
     @Override
     public Component createPositionLabel(String aId, IModel<AnnotatorState> aModel)
     {
-        var label = new Label(aId, () -> {
-            var state = aModel.getObject();
-            return String.format("%d-%d / %d sentences [doc %d / %d]",
-                    state.getFirstVisibleUnitIndex(), state.getLastVisibleUnitIndex(),
-                    state.getUnitCount(), state.getDocumentIndex() + 1,
-                    state.getNumberOfDocuments());
-        });
-        label.setOutputMarkupPlaceholderTag(true);
-        return label;
+        return new PositionInfoPanel(aId, aModel, "sentences");
     }
 
     @Override
-    public DefaultPagingNavigator createPageNavigator(String aId, Page aPage)
+    public DefaultPagingNavigator createPageNavigator(String aId, DiamContext aEditor)
     {
-        return new DefaultPagingNavigator(aId, (DiamContext) aPage);
+        return new DefaultPagingNavigator(aId, aEditor);
     }
 }

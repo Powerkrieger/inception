@@ -20,7 +20,7 @@
   <parent>
     <groupId>de.tudarmstadt.ukp.inception.app</groupId>
     <artifactId>inception-app</artifactId>
-    <version>42.0-SNAPSHOT</version>
+    <version>43.0-SNAPSHOT</version>
   </parent>
   <artifactId>inception-ui-external-search</artifactId>
   <name>INCEpTION - External Search - UI</name>
@@ -33,11 +33,6 @@
     <dependency>
       <groupId>de.tudarmstadt.ukp.inception.app</groupId>
       <artifactId>inception-project-api</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>de.tudarmstadt.ukp.inception.app</groupId>
-      <artifactId>inception-annotation-storage-api</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -93,6 +88,11 @@
     <dependency>
       <groupId>de.tudarmstadt.ukp.inception.app</groupId>
       <artifactId>inception-ui-annotation</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>de.tudarmstadt.ukp.inception.app</groupId>
+      <artifactId>inception-workload</artifactId>
       <version>${project.version}</version>
     </dependency>
 

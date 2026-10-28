@@ -22,17 +22,15 @@ import java.io.IOException;
 import org.apache.uima.cas.CAS;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.request.IRequestParameters;
-import org.apache.wicket.request.Request;
 import org.springframework.core.annotation.Order;
 
-import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
 import de.tudarmstadt.ukp.inception.diam.editor.DiamRequest;
 import de.tudarmstadt.ukp.inception.diam.editor.config.DiamAutoConfig;
-import de.tudarmstadt.ukp.inception.diam.model.DiamContext;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.DefaultAjaxResponse;
 import de.tudarmstadt.ukp.inception.diam.model.compact.CompactRange;
 import de.tudarmstadt.ukp.inception.diam.model.compact.CompactRangeList;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
 
 /**
@@ -54,15 +52,14 @@ public class FillSlotWithNewAnnotationHandler
     }
 
     @Override
-    public DefaultAjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-            Request aRequest)
+    public DefaultAjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
     {
         try {
-            var context = aBehavior.getContext();
+            var context = aRequest.getContext();
             context.getActionHandler().ensureIsEditable();
+            context.activate(aTarget);
 
-            var cas = context.getEditorCas();
-            actionSpan(context, aTarget, aRequest.getRequestParameters(), cas);
+            actionSpan(context, aTarget, aRequest.getRequestParameters());
             return new DefaultAjaxResponse(getAction(aRequest));
         }
         catch (Exception e) {
@@ -77,16 +74,17 @@ public class FillSlotWithNewAnnotationHandler
     }
 
     private void actionSpan(DiamContext aContext, AjaxRequestTarget aTarget,
-            IRequestParameters aRequestParameters, CAS aCas)
+            IRequestParameters aRequestParameters)
         throws IOException, AnnotationException
     {
         // This is the span the user has marked in the browser in order to create a new slot-filler
         // annotation OR the span of an existing annotation which the user has selected.
-        var range = getRangeFromRequest(aContext, aRequestParameters, aCas);
+        var cas = aContext.getEditorCas();
+        var range = getRangeFromRequest(aContext, aRequestParameters, cas);
 
         // When filling a slot, the current selection is *NOT* changed. The Span annotation which
         // owns the slot that is being filled remains selected!
-        aContext.getActionHandler().actionFillSlot(aTarget, aCas, range.getBegin(), range.getEnd());
+        aContext.getActionHandler().actionFillSlot(aTarget, range.getBegin(), range.getEnd());
     }
 
     /**

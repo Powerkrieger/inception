@@ -22,6 +22,7 @@ import java.util.Optional;
 
 import org.apache.uima.cas.CAS;
 
+import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.actionbar.undo.PostAction;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.actionbar.undo.PostActionScrollToAndHighlight;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.actionbar.undo.PostActionScrollToAndSelect;
@@ -30,9 +31,9 @@ import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.actionbar.undo.actions.Re
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.actionbar.undo.actions.UndoableAnnotationAction;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanAdapter;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.event.SpanEvent;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.schema.api.adapter.AnnotationException;
 import de.tudarmstadt.ukp.inception.support.logging.LogMessage;
 import de.tudarmstadt.ukp.inception.support.uima.Range;
 
@@ -57,9 +58,10 @@ public class CreateSpanAnnotationAction
         throws AnnotationException
     {
         var adapter = aSchemaService.getAdapter(getLayer());
-        adapter.delete(getDocument(), getUser(), aCas, getVid());
+        adapter.delete(getDocument(), getDataOwner(), aCas, getVid());
         aMessages.add(LogMessage.info(this, "[%s] deleted", getLayer().getUiName()));
-        return Optional.of(new PostActionScrollToAndHighlight(getDocument(), range));
+        return Optional.of(new PostActionScrollToAndHighlight(getDocument(),
+                AnnotationSet.forUser(getDataOwner()), range));
     }
 
     @Override
@@ -68,7 +70,7 @@ public class CreateSpanAnnotationAction
         throws AnnotationException
     {
         var adapter = (SpanAdapter) aSchemaService.getAdapter(getLayer());
-        adapter.restore(getDocument(), getUser(), aCas, getVid());
+        adapter.restore(getDocument(), getDataOwner(), aCas, getVid());
         aMessages.add(LogMessage.info(this, "[%s] restored", getLayer().getUiName()));
         return Optional.of(new PostActionScrollToAndSelect(getVid()));
     }

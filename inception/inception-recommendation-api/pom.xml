@@ -20,11 +20,21 @@
   <parent>
     <groupId>de.tudarmstadt.ukp.inception.app</groupId>
     <artifactId>inception-app</artifactId>
-    <version>42.0-SNAPSHOT</version>
+    <version>43.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>inception-recommendation-api</artifactId>
   <name>INCEpTION - Recommendation - API</name>
+
+  <properties>
+    <!--
+      PredictionsTest is a deliberate scale test (10k documents x 1k suggestions) and
+      needs considerably more heap than the rest of the build. Overridden here rather
+      than raising the global default, which is multiplied by the reactor thread count.
+      Measured floor: OOMs at 2g, passes at 3g.
+    -->
+    <maven.surefire.heap>3g</maven.surefire.heap>
+  </properties>
 
   <dependencies>
     <dependency>

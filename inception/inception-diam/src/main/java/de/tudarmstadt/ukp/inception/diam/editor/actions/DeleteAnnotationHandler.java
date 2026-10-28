@@ -17,17 +17,16 @@
  */
 package de.tudarmstadt.ukp.inception.diam.editor.actions;
 
+import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.selectAnnotationByAddr;
+
 import org.apache.wicket.ajax.AjaxRequestTarget;
-import org.apache.wicket.request.Request;
 import org.springframework.core.annotation.Order;
 
-import de.tudarmstadt.ukp.inception.diam.editor.DiamAjaxBehavior;
 import de.tudarmstadt.ukp.inception.diam.editor.DiamRequest;
 import de.tudarmstadt.ukp.inception.diam.editor.config.DiamAutoConfig;
 import de.tudarmstadt.ukp.inception.diam.model.ajax.DefaultAjaxResponse;
 import de.tudarmstadt.ukp.inception.rendering.vmodel.VID;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
-import de.tudarmstadt.ukp.inception.support.uima.ICasUtil;
 
 /**
  * <p>
@@ -60,11 +59,10 @@ public class DeleteAnnotationHandler
     }
 
     @Override
-    public DefaultAjaxResponse handle(DiamAjaxBehavior aBehavior, AjaxRequestTarget aTarget,
-            Request aRequest)
+    public DefaultAjaxResponse handle(DiamRequest aRequest, AjaxRequestTarget aTarget)
     {
         try {
-            var context = aBehavior.getContext();
+            var context = aRequest.getContext();
 
             context.getActionHandler().ensureIsEditable();
 
@@ -78,13 +76,13 @@ public class DeleteAnnotationHandler
             var cas = context.getEditorCas();
             var state = context.getAnnotatorState();
 
-            var fs = ICasUtil.selectAnnotationByAddr(cas, vid.getId());
+            var fs = selectAnnotationByAddr(cas, vid.getId());
 
             var adapter = schemaService.findAdapter(state.getProject(), fs);
             state.setSelection(adapter.select(vid, fs));
 
-            context.getActionHandler().actionSelect(aTarget);
-            context.getActionHandler().actionDelete(aTarget);
+            context.actionActivateAndLoadSelectionDetails(aTarget);
+            context.actionActivateAndDelete(aTarget);
 
             return new DefaultAjaxResponse(getAction(aRequest));
         }

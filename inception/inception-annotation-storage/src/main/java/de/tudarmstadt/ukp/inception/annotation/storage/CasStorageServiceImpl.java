@@ -88,6 +88,8 @@ import de.tudarmstadt.ukp.inception.annotation.storage.driver.CasStorageDriver;
 import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import de.tudarmstadt.ukp.inception.schema.api.event.LayerConfigurationChangedEvent;
 import de.tudarmstadt.ukp.inception.support.logging.BaseLoggers;
+import de.tudarmstadt.ukp.clarin.webanno.api.casstorage.CasBackup;
+import java.util.List;
 
 /**
  * <p>
@@ -1012,14 +1014,11 @@ public class CasStorageServiceImpl
     {
         // Ensure that the CAS is not being re-written and temporarily unavailable while we export
         // it, then add this info to a mini-session to ensure that write-access is known
-        try (var session = CasStorageSession.openNested(true)) {
+        try (var session = CasStorageSession.openNested()) {
             try (var access = new WithExclusiveAccess(aDocument, aSet)) {
-                session.add(aDocument.getId(), aSet, EXCLUSIVE_WRITE_ACCESS, access.getHolder());
+                access.ensureRegisteredInSession();
 
                 driver.exportCas(aDocument, aSet, aStream);
-            }
-            finally {
-                session.remove(aDocument.getId(), aSet);
             }
         }
         catch (IOException e) {
@@ -1034,16 +1033,13 @@ public class CasStorageServiceImpl
     public void importCas(SourceDocument aDocument, AnnotationSet aSet, InputStream aStream)
         throws IOException
     {
-        // Ensure that the CAS is not being re-written and temporarily unavailable while we export
+        // Ensure that the CAS is not being re-written and temporarily unavailable while we import
         // it, then add this info to a mini-session to ensure that write-access is known
-        try (var session = CasStorageSession.openNested(true)) {
+        try (var session = CasStorageSession.openNested()) {
             try (var access = new WithExclusiveAccess(aDocument, aSet)) {
-                session.add(aDocument.getId(), aSet, EXCLUSIVE_WRITE_ACCESS, access.getHolder());
+                access.ensureRegisteredInSession();
 
                 driver.importCas(aDocument, aSet, aStream);
-            }
-            finally {
-                session.remove(aDocument.getId(), aSet);
             }
         }
         catch (IOException e) {
@@ -1073,9 +1069,9 @@ public class CasStorageServiceImpl
     {
         // Ensure that the CAS is not being re-written and temporarily unavailable while we check
         // upgrade it, then add this info to a mini-session to ensure that write-access is known
-        try (var session = CasStorageSession.openNested(true)) {
+        try (var session = CasStorageSession.openNested()) {
             try (var access = new WithExclusiveAccess(aDocument, aSet)) {
-                session.add(aDocument.getId(), aSet, EXCLUSIVE_WRITE_ACCESS, access.getHolder());
+                access.ensureRegisteredInSession();
 
                 var cas = aLoader.load(aDocument, aSet);
                 access.setCas(cas);
@@ -1086,9 +1082,26 @@ public class CasStorageServiceImpl
                     realWriteCas(aDocument, aSet, cas);
                 }
             }
-            finally {
-                session.remove(aDocument.getId(), aSet);
-            }
+        }
+        catch (IOException e) {
+            throw e;
+        }
+        catch (Exception e) {
+            throw new IOException(e);
+        }
+    }
+
+    @Override
+    public List<CasBackup> listCasBackups(SourceDocument aDocument, AnnotationSet aSet)
+        throws IOException
+    {
+        Validate.notNull(aDocument, "Source document must be specified");
+        Validate.notNull(aSet, "Set must be specified");
+
+        // Ensure that the CAS is not being re-written while we list the copies - a write
+        // temporarily keeps the previous version and may prune the history
+        try (var access = new WithExclusiveAccess(aDocument, aSet)) {
+            return driver.listCasBackups(aDocument, aSet);
         }
         catch (IOException e) {
             throw e;
@@ -1146,6 +1159,12 @@ public class CasStorageServiceImpl
         private long documentId;
         private AnnotationSet set;
 
+        /** The session this access lives in. */
+        private final CasStorageSession session;
+
+        /** Whether this access has been registered in the {@link #session}. */
+        private boolean registered;
+
         public WithExclusiveAccess(SourceDocument aDocument, AnnotationSet aSet)
             throws CasSessionException
         {
@@ -1154,7 +1173,7 @@ public class CasStorageServiceImpl
             documentId = aDocument.getId();
             set = aSet;
 
-            var session = CasStorageSession.get();
+            session = CasStorageSession.get();
 
             if (!session.hasExclusiveAccess(aDocument, aSet)) {
                 LOG.trace("CAS storage session [{}]: trying to briefly borrow CAS [{}]@{}",
@@ -1177,6 +1196,33 @@ public class CasStorageServiceImpl
         public CasKey getKey()
         {
             return key;
+        }
+
+        /**
+         * Registers the exclusive access held by this context in the CAS storage session so that
+         * operations nested inside the exclusive access scope recognize that write access has
+         * legitimately been obtained.
+         * <p>
+         * Most users of {@link WithExclusiveAccess} do not need this: holding the lock is enough to
+         * keep the CAS from being re-written while e.g. its metadata is inspected. It is required
+         * only when the locked scope hands the CAS - or the data backing it - to code that may
+         * itself try to write.
+         * <p>
+         * Does nothing if an enclosing session already holds exclusive access. In that case the
+         * access is that session's to register and to release, and this context merely operates
+         * under it - the CAS is locked either way. The registration is removed again when this
+         * context is {@link #close() closed}.
+         * <p>
+         * Calling this method multiple times has no additional effect.
+         */
+        public void ensureRegisteredInSession()
+        {
+            if (holder == null || registered) {
+                return;
+            }
+
+            session.add(documentId, set, EXCLUSIVE_WRITE_ACCESS, holder);
+            registered = true;
         }
 
         public boolean isCasSet()
@@ -1254,6 +1300,11 @@ public class CasStorageServiceImpl
         @Override
         public void close()
         {
+            if (registered) {
+                session.remove(documentId, set);
+                registered = false;
+            }
+
             if (holder != null) {
                 LOG.trace("Returning briefly borrowed CAS [{}]@[{}]({})", set, documentName,
                         documentId);

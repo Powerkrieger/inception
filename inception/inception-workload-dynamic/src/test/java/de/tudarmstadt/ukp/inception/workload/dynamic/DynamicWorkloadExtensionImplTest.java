@@ -40,6 +40,9 @@ import org.apache.uima.util.CasCreationUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -300,6 +303,99 @@ public class DynamicWorkloadExtensionImplTest
                     .as("The former annotator's annotations are retained, not reset") //
                     .isNotEmpty();
         }
+    }
+
+    @Test
+    public void thatRequiringNoAnnotatorsDoesNotSetDocumentToAnnotationFinished() throws Exception
+    {
+        // A project configured to require no annotators at all would trivially satisfy the
+        // threshold. Without a finished annotation there is nothing to curate, whatever the
+        // threshold says.
+        var doc = createSourceDocument("1.txt");
+
+        dynamicWorkloadExtension.updateDocumentState(doc, 0);
+
+        assertThat(documentService.getSourceDocument(project.getId(), doc.getId()).getState()) //
+                .as("Without any finished annotation, the document is not annotation-finished") //
+                .isNotEqualTo(SourceDocumentState.ANNOTATION_FINISHED);
+        assertStateAlignedWithReadiness(doc, 0);
+    }
+
+    @Test
+    public void thatLockedDocumentIsNotSetToAnnotationFinished() throws Exception
+    {
+        // Locking is not finishing - an annotator that locked the document without working on it
+        // leaves no data behind.
+        var doc = createAnnotationDocument("1.txt", AnnotationDocumentState.IGNORE).getDocument();
+
+        dynamicWorkloadExtension.updateDocumentState(doc, 1);
+
+        assertThat(documentService.getSourceDocument(project.getId(), doc.getId()).getState()) //
+                .as("A locked document is not annotation-finished") //
+                .isNotEqualTo(SourceDocumentState.ANNOTATION_FINISHED);
+        assertStateAlignedWithReadiness(doc, 1);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SourceDocumentState.class, names = { "CURATION_IN_PROGRESS",
+            "CURATION_FINISHED" })
+    public void thatUpdatingDocumentStateLeavesDocumentInCurationAlone(SourceDocumentState aState)
+        throws Exception
+    {
+        // The annotator has finished, so without the curation check the document would be set to
+        // ANNOTATION_FINISHED
+        var doc = createAnnotationDocument("1.txt", AnnotationDocumentState.FINISHED).getDocument();
+        documentService.setSourceDocumentState(doc, aState);
+
+        dynamicWorkloadExtension.updateDocumentState(doc, 1);
+
+        assertThat(documentService.getSourceDocument(project.getId(), doc.getId()).getState()) //
+                .isEqualTo(aState);
+    }
+
+    /**
+     * The alignment invariant: {@code updateDocumentState} must set the document to
+     * {@link SourceDocumentState#ANNOTATION_FINISHED} exactly when the workload manager also
+     * reports it as ready for curation. If these two drift apart, a document can claim that
+     * annotation is complete while curation refuses it - or vice versa.
+     */
+    @ParameterizedTest(name = "state={0}, required={1}")
+    @CsvSource({ //
+            "NEW, 0", //
+            "NEW, 1", //
+            "NEW, 2", //
+            "IN_PROGRESS, 1", //
+            "IN_PROGRESS, 2", //
+            "IGNORE, 0", //
+            "IGNORE, 1", //
+            "FINISHED, 0", //
+            "FINISHED, 1", //
+            "FINISHED, 2" })
+    public void thatDocumentStateIsAlignedWithCurationReadiness(AnnotationDocumentState aState,
+            int aRequiredAnnotatorCount)
+        throws Exception
+    {
+        traits.setDefaultNumberOfAnnotations(aRequiredAnnotatorCount);
+        dynamicWorkloadExtension.writeTraits(traits, project);
+
+        var doc = createAnnotationDocument("1.txt", aState).getDocument();
+
+        dynamicWorkloadExtension.updateDocumentState(doc, aRequiredAnnotatorCount);
+
+        assertStateAlignedWithReadiness(doc, aRequiredAnnotatorCount);
+    }
+
+    private void assertStateAlignedWithReadiness(SourceDocument aDocument,
+            int aRequiredAnnotatorCount)
+    {
+        var doc = documentService.getSourceDocument(project.getId(), aDocument.getId());
+        var readyForCuration = dynamicWorkloadExtension.isReadyForCuration(doc);
+
+        assertThat(doc.getState() == SourceDocumentState.ANNOTATION_FINISHED) //
+                .as("Document state [%s] must be ANNOTATION_FINISHED exactly when the document is "
+                        + "ready for curation (ready=%s, required=%d)", doc.getState(),
+                        readyForCuration, aRequiredAnnotatorCount) //
+                .isEqualTo(readyForCuration);
     }
 
     private SourceDocument createSourceDocument(String aName)

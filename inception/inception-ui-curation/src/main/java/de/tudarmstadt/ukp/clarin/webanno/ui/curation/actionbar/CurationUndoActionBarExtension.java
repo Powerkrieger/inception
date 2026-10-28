@@ -20,32 +20,42 @@ package de.tudarmstadt.ukp.clarin.webanno.ui.curation.actionbar;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.springframework.core.annotation.Order;
 
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarContext;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarExtension;
-import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
 import de.tudarmstadt.ukp.clarin.webanno.ui.annotation.actionbar.undo.UndoPanel;
-import de.tudarmstadt.ukp.clarin.webanno.ui.curation.config.LegacyCurationUIAutoConfiguration;
-import de.tudarmstadt.ukp.clarin.webanno.ui.curation.page.LegacyCurationPage;
+import de.tudarmstadt.ukp.inception.ui.curation.config.CurationUIAutoConfiguration;
 import de.tudarmstadt.ukp.inception.ui.curation.page.CurationPage;
+import de.tudarmstadt.ukp.inception.ui.curation.page.SplitCurationPage;
 
 /**
  * <p>
  * This class is exposed as a Spring Component via
- * {@link LegacyCurationUIAutoConfiguration#curationUndoActionBarExtension}.
+ * {@link CurationUIAutoConfiguration#curationUndoActionBarExtension}.
  * </p>
  */
 @Order(ActionBarExtension.ORDER_UNDO)
 public class CurationUndoActionBarExtension
     implements ActionBarExtension
 {
+
     @Override
-    public boolean accepts(AnnotationPageBase aPage)
+    public boolean accepts(ActionBarContext aContext)
     {
-        return aPage instanceof LegacyCurationPage || aPage instanceof CurationPage;
+        if (!aContext.hasDocument()) {
+            return false;
+        }
+
+        if (!aContext.editor().getActionHandler().isEditable()) {
+            return false;
+        }
+
+        return aContext.page() instanceof CurationPage
+                || aContext.page() instanceof SplitCurationPage;
     }
 
     @Override
-    public Panel createActionBarItem(String aId, AnnotationPageBase aPage)
+    public Panel createActionBarItem(String aId, ActionBarContext aContext)
     {
-        return new UndoPanel(aId, aPage);
+        return new UndoPanel(aId, aContext.editor());
     }
 }
