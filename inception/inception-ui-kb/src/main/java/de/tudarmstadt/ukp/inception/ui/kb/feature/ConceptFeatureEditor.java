@@ -150,8 +150,8 @@ public class ConceptFeatureEditor
         dialog.trapFocus();
         queue(dialog);
 
-        queue(new LambdaAjaxLink("openBrowseDialog", this::actionOpenBrowseDialog).add(visibleWhen(
-                () -> (aHandler == null || aHandler.isEditable()) && isBrowsingAllowed())));
+        queue(new LambdaAjaxLink("openBrowseDialog", this::actionOpenBrowseDialog)
+                .add(visibleWhen(this::isBrowsingAllowed)));
     }
 
     private boolean isBrowsingAllowed()
