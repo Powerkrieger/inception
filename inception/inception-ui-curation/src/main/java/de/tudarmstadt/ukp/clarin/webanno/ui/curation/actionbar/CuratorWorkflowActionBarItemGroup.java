@@ -22,12 +22,10 @@ import static de.tudarmstadt.ukp.clarin.webanno.model.SourceDocumentState.CURATI
 import static de.tudarmstadt.ukp.inception.curation.service.CurationMergeMode.FILL_ONLY;
 import static de.tudarmstadt.ukp.inception.curation.service.CurationMergeMode.RECREATE;
 import static de.tudarmstadt.ukp.inception.support.lambda.LambdaBehavior.enabledWhen;
-import static wicket.contrib.input.events.EventType.click;
-import static wicket.contrib.input.events.key.KeyType.Ctrl;
-import static wicket.contrib.input.events.key.KeyType.End;
 
 import java.io.IOException;
 
+import org.apache.wicket.AttributeModifier;
 import org.apache.wicket.ajax.AjaxRequestTarget;
 import org.apache.wicket.feedback.IFeedback;
 import org.apache.wicket.markup.html.basic.Label;
@@ -35,6 +33,7 @@ import org.apache.wicket.markup.html.form.Form;
 import org.apache.wicket.markup.html.panel.Panel;
 import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LambdaModel;
+import org.apache.wicket.model.LoadableDetachableModel;
 import org.apache.wicket.model.Model;
 import org.apache.wicket.model.PropertyModel;
 import org.apache.wicket.model.ResourceModel;
@@ -43,10 +42,13 @@ import org.apache.wicket.spring.injection.annot.SpringBean;
 import de.agilecoders.wicket.core.markup.html.bootstrap.behavior.CssClassNameModifier;
 import de.agilecoders.wicket.extensions.markup.html.bootstrap.icon.FontAwesome7IconType;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarContext;
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.DocumentStateHandler;
+import de.tudarmstadt.ukp.clarin.webanno.api.annotation.exception.NotEditableException;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.exception.ValidationException;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
 import de.tudarmstadt.ukp.clarin.webanno.security.UserDao;
 import de.tudarmstadt.ukp.clarin.webanno.ui.curation.page.MergeDialog;
+import de.tudarmstadt.ukp.inception.curation.api.CurationSessionService;
 import de.tudarmstadt.ukp.inception.curation.merge.strategy.MergeStrategy;
 import de.tudarmstadt.ukp.inception.curation.merge.strategy.MergeStrategyFactory;
 import de.tudarmstadt.ukp.inception.curation.model.CurationWorkflow;
@@ -54,14 +56,13 @@ import de.tudarmstadt.ukp.inception.curation.service.CurationDocumentService;
 import de.tudarmstadt.ukp.inception.curation.service.CurationService;
 import de.tudarmstadt.ukp.inception.documents.api.DocumentService;
 import de.tudarmstadt.ukp.inception.rendering.editorstate.AnnotationException;
-import de.tudarmstadt.ukp.inception.rendering.editorstate.DiamContext;
+import de.tudarmstadt.ukp.inception.rendering.editorstate.DocumentEditor;
 import de.tudarmstadt.ukp.inception.support.lambda.LambdaAjaxLink;
-import de.tudarmstadt.ukp.inception.support.wicket.input.InputBehavior;
 import de.tudarmstadt.ukp.inception.ui.curation.page.CuratableDocumentPage;
-import wicket.contrib.input.events.key.KeyType;
 
 public class CuratorWorkflowActionBarItemGroup
     extends Panel
+    implements DocumentStateHandler
 {
     private static final long serialVersionUID = 8596786586955459711L;
 
@@ -69,9 +70,10 @@ public class CuratorWorkflowActionBarItemGroup
     private @SpringBean CurationService curationService;
     private @SpringBean CurationDocumentService curationDocumentService;
     private @SpringBean UserDao userRepository;
+    private @SpringBean CurationSessionService curationSessionService;
 
     private final AnnotationPageBase page;
-    private final DiamContext editorContext;
+    private final DocumentEditor editorContext;
     // private final ConfirmationDialog finishDocumentDialog;
     private final LambdaAjaxLink toggleCurationStateLink;
     private final IModel<CurationWorkflow> curationWorkflowModel;
@@ -83,7 +85,7 @@ public class CuratorWorkflowActionBarItemGroup
         super(aId);
 
         page = aContext.page();
-        editorContext = aContext.editorContext();
+        editorContext = aContext.editor();
 
         // add(finishDocumentDialog = new ConfirmationDialog("finishDocumentDialog",
         // new StringResourceModel("FinishDocumentDialog.title", this, null),
@@ -92,27 +94,40 @@ public class CuratorWorkflowActionBarItemGroup
         add(toggleCurationStateLink = new LambdaAjaxLink("toggleCurationState",
                 this::actionToggleCurationState));
         toggleCurationStateLink.setOutputMarkupId(true);
+        toggleCurationStateLink.add(AttributeModifier.replace("title",
+                LoadableDetachableModel.of(() -> getString(getStateTooltipKey()))));
         toggleCurationStateLink.add(new Label("state")
                 .add(new CssClassNameModifier(LambdaModel.of(this::getStateClass))));
-        toggleCurationStateLink.add(new InputBehavior(new KeyType[] { Ctrl, End }, click));
 
-        curationWorkflowModel = Model.of(
-                curationService.readOrCreateCurationWorkflow(page.getModelObject().getProject()));
-        IModel<String> documentNameModel = PropertyModel.of(page.getModel(), "document.name");
+        curationWorkflowModel = Model.of(curationService
+                .readOrCreateCurationWorkflow(editorContext.getAnnotatorState().getProject()));
+        IModel<String> documentNameModel = PropertyModel.of(editorContext.getStateModel(),
+                "document.name");
         add(resetDocumentDialog = new MergeDialog("resetDocumentDialog",
-                new ResourceModel("ResetDocumentDialog.title"),
-                new ResourceModel("ResetDocumentDialog.text"), documentNameModel,
-                curationWorkflowModel));
+                new ResourceModel("reMergeDialog.title"), new ResourceModel("reMergeDialog.text"),
+                documentNameModel, curationWorkflowModel));
         resetDocumentDialog.setConfirmAction(this::actionResetDocument);
+        resetDocumentDialog.setDataOwnerSource(() -> curationSessionService
+                .listCuratableDataOwners(editorContext.getAnnotatorState().getDocument()));
+        resetDocumentDialog.setSidebarSelectionSource(() -> {
+            var state = editorContext.getAnnotatorState();
+            return curationSessionService.listDataOwnersReadyForCuration(
+                    userRepository.getCurrentUsername(), state.getProject(), state.getDocument());
+        });
 
         add(resetDocumentLink = new LambdaAjaxLink("showResetDocumentDialog",
                 resetDocumentDialog::show));
         resetDocumentLink.add(enabledWhen(this::isEditable));
     }
 
+    /**
+     * Like the annotator's finish button on the annotation page, the button shows the state that
+     * clicking it leads to (the tooltip says the current one), so the symbols are the other way
+     * round than in status displays such as the monitoring page.
+     */
     public String getStateClass()
     {
-        var state = page.getModelObject();
+        var state = editorContext.getAnnotatorState();
 
         if (curationDocumentService.isCurationFinished(state.getDocument())) {
             return FontAwesome7IconType.clipboard_s.cssClassName();
@@ -122,9 +137,21 @@ public class CuratorWorkflowActionBarItemGroup
         }
     }
 
+    private String getStateTooltipKey()
+    {
+        var state = editorContext.getAnnotatorState();
+
+        if (curationDocumentService.isCurationFinished(state.getDocument())) {
+            return "stateToggle.curationFinished";
+        }
+        else {
+            return "stateToggle.curationInProgress";
+        }
+    }
+
     protected boolean isEditable()
     {
-        var state = page.getModelObject();
+        var state = editorContext.getAnnotatorState();
         if (state.getProject() == null || state.getDocument() == null) {
             return false;
         }
@@ -137,9 +164,26 @@ public class CuratorWorkflowActionBarItemGroup
     protected void actionToggleCurationState(AjaxRequestTarget aTarget)
         throws IOException, AnnotationException
     {
-        var state = page.getModelObject();
+        var state = editorContext.getAnnotatorState();
         var sourceDocument = state.getDocument();
-        var docState = sourceDocument.getState();
+        var latest = documentService.getSourceDocument(sourceDocument.getProject().getId(),
+                sourceDocument.getId());
+
+        // The click is meant for the state the curator sees, which is the editor's copy of the
+        // document. If somebody changed the state in the meantime (another curator, or a reset on
+        // the monitoring page), acting on either state may do something the curator did not
+        // intend - e.g. finish a curation that was just reset - so refuse instead.
+        if (latest.getState() != sourceDocument.getState()) {
+            page.error("The state of document [" + sourceDocument.getName()
+                    + "] has been changed in the meantime. Reload the page to see its current "
+                    + "state.");
+            aTarget.addChildren(page, IFeedback.class);
+            return;
+        }
+
+        // Write through the latest document, not the editor's copy, so the change is announced
+        // with the correct previous state and no other stale fields are written back
+        var docState = latest.getState();
 
         switch (docState) {
         case CURATION_IN_PROGRESS:
@@ -152,28 +196,65 @@ public class CuratorWorkflowActionBarItemGroup
                 return;
             }
 
-            documentService.setSourceDocumentState(sourceDocument, CURATION_FINISHED);
-            aTarget.add(page);
+            documentService.setSourceDocumentState(latest, CURATION_FINISHED);
+            sourceDocument.copyStateFrom(latest);
+            editorContext.refreshAfterDocumentStateChange(aTarget);
             break;
         case CURATION_FINISHED:
-            documentService.setSourceDocumentState(sourceDocument, CURATION_IN_PROGRESS);
-            aTarget.add(page);
+            documentService.setSourceDocumentState(latest, CURATION_IN_PROGRESS);
+            sourceDocument.copyStateFrom(latest);
+            editorContext.refreshAfterDocumentStateChange(aTarget);
             break;
         default:
-            error("Can only change document state for documents that are finished or in progress, "
-                    + "but document is in state [" + docState + "]");
+            page.error(
+                    "Can only change document state for documents that are finished or in progress, "
+                            + "but document is in state [" + docState + "]");
             aTarget.addChildren(getPage(), IFeedback.class);
             break;
         }
     }
 
+    @Override
+    public void actionFinishOrReopenDocument(AjaxRequestTarget aTarget)
+        throws IOException, AnnotationException
+    {
+        if (editorContext.getAnnotatorState().getDocument() == null) {
+            return;
+        }
+
+        actionToggleCurationState(aTarget);
+    }
+
     protected void actionResetDocument(AjaxRequestTarget aTarget, Form<MergeDialog.State> aForm)
         throws Exception
     {
+        if (!isEditable()) {
+            throw new NotEditableException("Curation is already finished. You can put it back "
+                    + "into progress via the monitoring page.");
+        }
+
         MergeStrategyFactory<?> mergeStrategyFactory = curationService
                 .getMergeStrategyFactory(curationWorkflowModel.getObject());
         MergeStrategy mergeStrategy = curationService
                 .getMergeStrategy(curationWorkflowModel.getObject());
+
+        var state = editorContext.getAnnotatorState();
+
+        // The dialog offers the annotators that were curatable when it was opened. Some may have
+        // stopped being curatable since, e.g. because they were reset on the monitoring page.
+        // Check this before saving anything, and close the dialog so that reopening it offers the
+        // current annotators.
+        var curatableDataOwners = curationSessionService
+                .listCuratableDataOwners(state.getDocument());
+        var dataOwners = aForm.getModelObject().getDataOwners().stream() //
+                .filter(curatableDataOwners::contains) //
+                .toList();
+        if (dataOwners.isEmpty()) {
+            getPage().error("Unable to merge: none of the selected annotators has annotations "
+                    + "that can be curated any more.");
+            aTarget.addChildren(getPage(), IFeedback.class);
+            return;
+        }
 
         if (aForm.getModelObject().isSaveSettingsAsDefault()) {
             curationService.createOrUpdateCurationWorkflow(curationWorkflowModel.getObject());
@@ -182,13 +263,12 @@ public class CuratorWorkflowActionBarItemGroup
         }
 
         var mergeMode = aForm.getModelObject().isClearTargetCas() ? RECREATE : FILL_ONLY;
-        var state = page.getModelObject();
 
-        ((CuratableDocumentPage) page).readOrCreateCurationCas(state.getDocument(), mergeStrategy,
-                mergeMode);
+        ((CuratableDocumentPage) page).readOrCreateCurationCas(state.getDocument(), state,
+                mergeStrategy, mergeMode, dataOwners);
 
         // ... and load it
-        page.actionLoadDocument(aTarget);
+        editorContext.actionLoadDocument(aTarget);
 
         getPage().success("Re-merge using [" + mergeStrategyFactory.getLabel() + "] finished!");
         aTarget.addChildren(getPage(), IFeedback.class);

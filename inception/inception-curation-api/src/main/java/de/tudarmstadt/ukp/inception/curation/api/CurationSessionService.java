@@ -24,14 +24,15 @@ import java.util.Set;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
+import de.tudarmstadt.ukp.clarin.webanno.security.model.User;
 
 public interface CurationSessionService
 {
     /**
      * @return the subset of {@code aCandidates} that is currently selected for curation, i.e. the
-     *         candidates the session owner has not explicitly deselected. The session stores the
-     *         <em>deselected</em> data owners, so a candidate that was never deselected counts as
-     *         selected - this is why a freshly started session curates all annotators by default.
+     *         candidates the session owner has not explicitly deselected. Only the
+     *         <em>deselected</em> data owners are stored, so a candidate that was never deselected
+     *         counts as selected - this is why all annotators are curated by default.
      */
     Set<AnnotationSet> getSelectedDataOwners(String aCurrentUser, long aProjectId,
             Collection<AnnotationSet> aCandidates);
@@ -48,24 +49,34 @@ public interface CurationSessionService
     void setSelectedDataOwners(String aCurrentUser, long aProjectId,
             Collection<AnnotationSet> aCandidates, Collection<AnnotationSet> aSelected);
 
-    @Deprecated
-    boolean existsSession(String aSessionOwner, long aProjectId);
-
-    @Deprecated
-    void startSession(String aSessionOwner, Project aProject);
-
-    @Deprecated
-    void closeSession(String aCurrentUser, long aProjectId);
-
     boolean isShowAll(String aSessionOwner, Long aProjectId);
+
+    /**
+     * Same as {@link #isShowAll(String, Long)}, but for callers that already hold the user and the
+     * project, e.g. during rendering, so they need not be looked up again.
+     */
+    boolean isShowAll(User aSessionOwner, Project aProject);
 
     void setShowAll(String aSessionOwner, Long aProjectId, boolean aValue);
 
     boolean isShowScore(String aSessionOwner, Long aProjectId);
 
+    /**
+     * Same as {@link #isShowScore(String, Long)}, but for callers that already hold the user and
+     * the project, e.g. during rendering, so they need not be looked up again.
+     */
+    boolean isShowScore(User aSessionOwner, Project aProject);
+
     void setShowScore(String aSessionOwner, Long aProjectId, boolean aValue);
 
     List<AnnotationSet> listDataOwnersReadyForCuration(String aUsername, Project aProject,
+            SourceDocument aDocument);
+
+    /**
+     * Same as {@link #listDataOwnersReadyForCuration(String, Project, SourceDocument)}, but for
+     * callers that already hold the user, e.g. during rendering, so it need not be looked up again.
+     */
+    List<AnnotationSet> listDataOwnersReadyForCuration(User aSessionOwner, Project aProject,
             SourceDocument aDocument);
 
     List<AnnotationSet> listCuratableDataOwners(SourceDocument aDocument);
