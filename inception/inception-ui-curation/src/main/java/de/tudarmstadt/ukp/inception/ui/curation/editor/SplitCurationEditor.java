@@ -54,7 +54,7 @@ import de.tudarmstadt.ukp.inception.schema.api.AnnotationSchemaService;
 import de.tudarmstadt.ukp.inception.support.kendo.AjaxSplitterBehavior;
 
 /**
- * Editor resembling the split pane approach of the legacy curation page.
+ * Editor showing the curation document and the annotators' documents in a split pane.
  */
 public class SplitCurationEditor
     extends AnnotationEditorBase
@@ -97,6 +97,8 @@ public class SplitCurationEditor
 
         annotatorsPanel = new AnnotatorsPanel(MID_ANNOTATORS_PANEL, aManager,
                 new ListModel<>(segments));
+        annotatorsPanel.setSelectAnnotationOnMerge(true);
+        annotatorsPanel.setShowDetailsEnabled(true);
         annotatorsPanel.setOutputMarkupPlaceholderTag(true);
         annotatorsPanel.add(visibleWhen(getModel().map(AnnotatorState::getDocument).isPresent()));
         splitter.add(annotatorsPanel);

@@ -56,7 +56,7 @@ class CasMergeSpan
     private static final Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
     static CasMergeOperationResult mergeSpanAnnotation(CasMergeContext aContext,
-            SourceDocument aDocument, String aDataOwner, AnnotationLayer aAnnotationLayer,
+            SourceDocument aDocument, String aTargetDataOwner, AnnotationLayer aAnnotationLayer,
             CAS aTargetCas, AnnotationFS aSourceFs, boolean aAllowStacking)
         throws AnnotationException
     {
@@ -88,7 +88,8 @@ class CasMergeSpan
                         aSourceFs);
                 if (partial.isPresent()) {
                     aContext.claim(aSourceFs, fingerprint, partial.get());
-                    mergeAttachedRelations(aContext, aDocument, aDataOwner, aTargetCas, aSourceFs);
+                    mergeAttachedRelations(aContext, aDocument, aTargetDataOwner, aTargetCas,
+                            aSourceFs);
                     return new CasMergeOperationResult(UPDATED, getAddr(partial.get()));
                 }
             }
@@ -106,13 +107,13 @@ class CasMergeSpan
             // Create the annotation via the adapter - this also takes care of attaching to an
             // annotation if necessary
             var mergedSpan = adapter.handle(CreateSpanAnnotationRequest.builder() //
-                    .withDocument(aDocument, aDataOwner, aTargetCas) //
+                    .withDocument(aDocument, aTargetDataOwner, aTargetCas) //
                     .withRange(aSourceFs.getBegin(), aSourceFs.getEnd()) //
                     .build());
 
             var mergedSpanAddr = -1;
             try {
-                copyFeatures(aContext, aDocument, aDataOwner, adapter, mergedSpan, aSourceFs);
+                copyFeatures(aContext, aDocument, aTargetDataOwner, adapter, mergedSpan, aSourceFs);
                 mergedSpanAddr = getAddr(mergedSpan);
                 if (fingerprint != null) {
                     aContext.claim(aSourceFs, fingerprint, mergedSpan);
@@ -121,12 +122,13 @@ class CasMergeSpan
             catch (AnnotationException e) {
                 // If there was an error while setting the features, then we skip the entire
                 // annotation
-                adapter.delete(aDocument, aDataOwner, aTargetCas, VID.of(mergedSpan));
+                adapter.delete(aDocument, aTargetDataOwner, aTargetCas, VID.of(mergedSpan));
                 throw e;
             }
 
             if (fingerprint != null && aContext.isMergeAttachedRelations()) {
-                mergeAttachedRelations(aContext, aDocument, aDataOwner, aTargetCas, aSourceFs);
+                mergeAttachedRelations(aContext, aDocument, aTargetDataOwner, aTargetCas,
+                        aSourceFs);
             }
 
             return new CasMergeOperationResult(CREATED, mergedSpanAddr);
@@ -141,11 +143,12 @@ class CasMergeSpan
         }
         else {
             var annoToUpdate = existingAnnos.get(0);
-            copyFeatures(aContext, aDocument, aDataOwner, adapter, annoToUpdate, aSourceFs);
+            copyFeatures(aContext, aDocument, aTargetDataOwner, adapter, annoToUpdate, aSourceFs);
             if (fingerprint != null) {
                 aContext.claim(aSourceFs, fingerprint, annoToUpdate);
                 if (aContext.isMergeAttachedRelations()) {
-                    mergeAttachedRelations(aContext, aDocument, aDataOwner, aTargetCas, aSourceFs);
+                    mergeAttachedRelations(aContext, aDocument, aTargetDataOwner, aTargetCas,
+                            aSourceFs);
                 }
             }
             var mergedSpanAddr = getAddr(annoToUpdate);
@@ -212,7 +215,7 @@ class CasMergeSpan
      * in the target are not overwritten.
      */
     private static void mergeAttachedRelations(CasMergeContext aContext, SourceDocument aDocument,
-            String aDataOwner, CAS aTargetCas, AnnotationFS aSourceFs)
+            String aTargetDataOwner, CAS aTargetCas, AnnotationFS aSourceFs)
     {
         var project = aDocument.getProject();
         var fingerprinter = aContext.getRelationContextFingerprinter(project);
@@ -238,8 +241,9 @@ class CasMergeSpan
                         var endpointLayer = aContext.findLayer(project,
                                 endpoint.getType().getName());
                         try {
-                            mergeSpanAnnotation(aContext, aDocument, aDataOwner, endpointLayer,
-                                    aTargetCas, endpoint, endpointLayer.isAllowStacking());
+                            mergeSpanAnnotation(aContext, aDocument, aTargetDataOwner,
+                                    endpointLayer, aTargetCas, endpoint,
+                                    endpointLayer.isAllowStacking());
                         }
                         catch (AlreadyMergedException e) {
                             // Endpoint already exists in the target (or a preserved annotation
@@ -247,7 +251,7 @@ class CasMergeSpan
                         }
                     }
 
-                    CasMergeRelation.mergeRelationAnnotation(aContext, aDocument, aDataOwner,
+                    CasMergeRelation.mergeRelationAnnotation(aContext, aDocument, aTargetDataOwner,
                             relationLayer, aTargetCas, (AnnotationFS) relation,
                             relationLayer.isAllowStacking());
                 }

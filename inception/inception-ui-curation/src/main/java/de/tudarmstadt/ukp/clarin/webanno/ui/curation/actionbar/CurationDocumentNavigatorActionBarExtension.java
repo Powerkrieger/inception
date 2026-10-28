@@ -17,17 +17,18 @@
  */
 package de.tudarmstadt.ukp.clarin.webanno.ui.curation.actionbar;
 
+import java.util.List;
+
 import org.apache.wicket.markup.html.panel.Panel;
+import org.apache.wicket.model.IModel;
 import org.apache.wicket.model.LoadableDetachableModel;
 import org.springframework.core.annotation.Order;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarContext;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.actionbar.ActionBarExtension;
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.page.AnnotationPageBase;
-import de.tudarmstadt.ukp.clarin.webanno.ui.curation.page.LegacyCurationPage;
-import de.tudarmstadt.ukp.inception.ui.curation.actionbar.opendocument.CurationOpenDocumentDialog;
-import de.tudarmstadt.ukp.inception.ui.curation.page.CurationPage;
-import de.tudarmstadt.ukp.inception.ui.curation.page.SplitCurationPage;
+import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
+import de.tudarmstadt.ukp.inception.ui.curation.page.CuratableDocumentPage;
 
 @Order(ActionBarExtension.ORDER_DOCUMENT_NAVIGATOR)
 public class CurationDocumentNavigatorActionBarExtension
@@ -48,34 +49,22 @@ public class CurationDocumentNavigatorActionBarExtension
     @Override
     public boolean accepts(ActionBarContext aContext)
     {
-        return (aContext.page() instanceof LegacyCurationPage
-                || aContext.page() instanceof CurationPage
-                || aContext.page() instanceof SplitCurationPage);
+        return aContext.page() instanceof CuratableDocumentPage;
     }
 
     @Override
     public Panel createActionBarItem(String aId, ActionBarContext aContext)
     {
-        return new CurationDocumentNavigator(aId, aContext.page());
+        var documents = listCuratableDocuments(aContext.page());
+        return new CurationDocumentNavigator(aId, aContext, documents);
     }
 
-    @Override
-    public void onInitialize(ActionBarContext aContext)
+    private static IModel<List<SourceDocument>> listCuratableDocuments(AnnotationPageBase aPage)
     {
-        if (!(aContext.page() instanceof LegacyCurationPage)) {
-            return;
+        if (aPage instanceof CuratableDocumentPage page) {
+            return LoadableDetachableModel.of(page::listCuratableDocuments);
         }
 
-        // Open the dialog if no document has been selected.
-        aContext.page().add(new CurationAutoOpenDialogBehavior());
-
-        aContext.page().addToFooter(createOpenDocumentsDialog("item", aContext.page()));
-    }
-
-    private CurationOpenDocumentDialog createOpenDocumentsDialog(String aId,
-            AnnotationPageBase aPage)
-    {
-        return new CurationOpenDocumentDialog(aId, aPage.getModel(),
-                LoadableDetachableModel.of(aPage::getListOfDocs));
+        throw new IllegalStateException("Page class [" + aPage.getClass() + "] not supported");
     }
 }

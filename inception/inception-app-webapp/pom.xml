@@ -21,7 +21,7 @@
   <parent>
     <groupId>de.tudarmstadt.ukp.inception.app</groupId>
     <artifactId>inception-app</artifactId>
-    <version>42.0-SNAPSHOT</version>
+    <version>43.0-SNAPSHOT</version>
     <relativePath>..</relativePath>
   </parent>
 
@@ -491,11 +491,6 @@
     <dependency>
       <groupId>de.tudarmstadt.ukp.inception.app</groupId>
       <artifactId>inception-html-apache-annotator-editor</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>de.tudarmstadt.ukp.inception.app</groupId>
-      <artifactId>inception-html-recogito-editor</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
@@ -1234,7 +1229,6 @@
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-brat-editor</usedDependency>
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-external-editor</usedDependency>
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-html-apache-annotator-editor</usedDependency>
-              <usedDependency>de.tudarmstadt.ukp.inception.app:inception-html-recogito-editor</usedDependency>
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-pdf-editor2</usedDependency>
               <!-- INCEpTION IO Modules - used via Spring -->
               <usedDependency>de.tudarmstadt.ukp.inception.app:inception-io-bioc</usedDependency>

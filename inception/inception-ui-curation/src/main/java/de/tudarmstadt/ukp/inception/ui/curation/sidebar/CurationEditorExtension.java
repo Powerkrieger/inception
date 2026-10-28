@@ -33,6 +33,7 @@ import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 
 import org.apache.uima.cas.CAS;
@@ -45,6 +46,7 @@ import org.springframework.context.ApplicationEventPublisher;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.annotation.exception.NotEditableException;
 import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.CasDiff;
+import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.Configuration;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationSet;
@@ -140,6 +142,14 @@ public class CurationEditorExtension
         }
 
         var state = aContext.getAnnotatorState();
+
+        // The VID comes from the client, which could aim a curation action at another annotator's
+        // CAS on a page that is not a curation page. The curation extension is only enabled in the
+        // server-side editor state on the curation page, so refuse the action otherwise.
+        if (!state.isExtensionEnabled(EXTENSION_ID)) {
+            return;
+        }
+
         var doc = state.getDocument();
         var srcUser = curationVid.getUsername();
 
@@ -238,31 +248,31 @@ public class CurationEditorExtension
         throws IOException, AnnotationException
     {
 
-        // get user CAS and annotation (to be merged into curator's)
         var doc = aState.getDocument();
-        var srcUser = aCurationVid.getUsername();
+        var srcDataOwner = aCurationVid.getUsername();
+        var tgtDataOwner = aState.getUser().getUsername();
 
         var vid = VID.parse(aCurationVid.getExtensionPayload());
 
-        var srcCas = documentService.readAnnotationCas(doc, AnnotationSet.forUser(srcUser));
+        var srcCas = documentService.readAnnotationCas(doc, AnnotationSet.forUser(srcDataOwner));
         var sourceAnnotation = selectAnnotationByAddr(srcCas, vid.getId());
         var layer = annotationService.findLayer(aState.getProject(), sourceAnnotation);
 
         if (vid.isSlotSet()) {
-            mergeSlot(aState, aTargetCas, vid, srcUser, sourceAnnotation, layer);
+            mergeSlot(aState, aTargetCas, vid, tgtDataOwner, sourceAnnotation, layer);
         }
         else if (RelationLayerSupport.TYPE.equals(layer.getType())) {
-            mergeRelation(aState, aTargetCas, vid, srcUser, sourceAnnotation, layer);
+            mergeRelation(aState, aTargetCas, vid, tgtDataOwner, sourceAnnotation, layer);
         }
         else if (SpanLayerSupport.TYPE.equals(layer.getType())) {
-            mergeSpan(aState, aTargetCas, vid, srcUser, sourceAnnotation, layer);
+            mergeSpan(aState, aTargetCas, vid, tgtDataOwner, sourceAnnotation, layer);
         }
 
         aActionHandler.actionLoadSelectedAnnotationDetails(aTarget);
         aActionHandler.writeEditorCas();
     }
 
-    private void mergeSlot(AnnotatorState aState, CAS aTargetCas, VID aVid, String aSrcUser,
+    private void mergeSlot(AnnotatorState aState, CAS aTargetCas, VID aVid, String aTargetDataOwner,
             AnnotationFS sourceAnnotation, AnnotationLayer layer)
         throws AnnotationException
     {
@@ -273,7 +283,7 @@ public class CurationEditorExtension
         var feature = adapter.listFeatures().stream().sequential().skip(aVid.getAttribute())
                 .findFirst().get();
 
-        var mergeResult = casMerge.mergeSlotFeature(doc, aSrcUser, layer, aTargetCas,
+        var mergeResult = casMerge.mergeSlotFeature(doc, aTargetDataOwner, layer, aTargetCas,
                 sourceAnnotation, feature.getName(), aVid.getSlot());
 
         // open created/updates FS in annotation detail editor panel
@@ -281,13 +291,13 @@ public class CurationEditorExtension
         aState.setSelection(Selection.span(mergedAnno));
     }
 
-    private void mergeRelation(AnnotatorState aState, CAS aTargetCas, VID aVid, String aSrcUser,
-            AnnotationFS sourceAnnotation, AnnotationLayer layer)
+    private void mergeRelation(AnnotatorState aState, CAS aTargetCas, VID aVid,
+            String aTargetDataOwner, AnnotationFS sourceAnnotation, AnnotationLayer layer)
         throws AnnotationException
     {
         var doc = aState.getDocument();
         var casMerge = new CasMerge(annotationService, applicationEventPublisher);
-        var mergeResult = casMerge.mergeRelationAnnotation(doc, aSrcUser, layer, aTargetCas,
+        var mergeResult = casMerge.mergeRelationAnnotation(doc, aTargetDataOwner, layer, aTargetCas,
                 sourceAnnotation);
 
         // open created/updates FS in annotation detail editor panel
@@ -295,14 +305,14 @@ public class CurationEditorExtension
         aState.setSelection(Selection.arc(mergedAnno));
     }
 
-    private void mergeSpan(AnnotatorState aState, CAS aTargetCas, VID aVid, String aSrcUser,
+    private void mergeSpan(AnnotatorState aState, CAS aTargetCas, VID aVid, String aTargetDataOwner,
             AnnotationFS sourceAnnotation, AnnotationLayer layer)
         throws AnnotationException
     {
         var doc = aState.getDocument();
         var casMerge = new CasMerge(annotationService, applicationEventPublisher);
         casMerge.setMergeAttachedRelations(true);
-        var mergeResult = casMerge.mergeSpanAnnotation(doc, aSrcUser, layer, aTargetCas,
+        var mergeResult = casMerge.mergeSpanAnnotation(doc, aTargetDataOwner, layer, aTargetCas,
                 sourceAnnotation);
 
         // open created/updates FS in annotation detail editor panel
@@ -311,9 +321,16 @@ public class CurationEditorExtension
     }
 
     @Override
-    public List<VLazyDetailGroup> lookupLazyDetails(SourceDocument aDocument, User aDataOwner,
-            CAS aCas, VID aVid, AnnotationLayer aLayer)
+    public List<VLazyDetailGroup> lookupLazyDetails(DiamContext aContext, SourceDocument aDocument,
+            User aDataOwner, CAS aCas, VID aVid, AnnotationLayer aLayer)
     {
+        // The VID comes from the client and names the annotator whose annotations are looked up.
+        // Only the curation page enables the curation extension in the server-side editor state, so
+        // refuse the lookup elsewhere.
+        if (!aContext.getAnnotatorState().isExtensionEnabled(EXTENSION_ID)) {
+            return emptyList();
+        }
+
         var detailGroups = new ArrayList<VLazyDetailGroup>();
 
         try {
@@ -368,24 +385,10 @@ public class CurationEditorExtension
             User aDataOwner, CAS aCas, AnnotationLayer aLayer, VID vid, String aSrcUser,
             CAS aSrcCas, List<AnnotationFeature> aNonCuratableFeatures)
     {
-        var sessionOwner = userRepository.getCurrentUsername();
-        var selectedDataOwners = curationSessionService.listDataOwnersReadyForCuration(sessionOwner,
-                aDocument.getProject(), aDocument);
-
-        if (selectedDataOwners.isEmpty()) {
-            return emptyList();
-        }
-
-        // The editable target CAS goes first, then the read-only CASes of the other data owners.
         var casses = new LinkedHashMap<String, CAS>();
-        casses.put(aDataOwner.getUsername(), aCas);
-        documentService.readAllAnnotationCases(aDocument, selectedDataOwners)
-                .forEach(casses::putIfAbsent);
-
         var srcFs = selectFsByAddr(aSrcCas, vid.getId());
-        var casDiff = createDiff(casses, aLayer, srcFs);
-
-        var maybeConfiguration = casDiff.toResult().findConfiguration(aSrcUser, srcFs);
+        var maybeConfiguration = findConfiguration(aDocument, aDataOwner, aCas, aLayer, aSrcUser,
+                srcFs, casses);
         if (maybeConfiguration.isEmpty()) {
             return emptyList();
         }
@@ -415,6 +418,74 @@ public class CurationEditorExtension
         }
 
         return detailGroups;
+    }
+
+    /**
+     * Lists the annotators who made the annotation a curation suggestion stands for - the
+     * suggestion shows the annotation of one of them (the representative), but all of them agree on
+     * it at that position.
+     *
+     * @param aDocument
+     *            the document being curated
+     * @param aDataOwner
+     *            the curator (the data owner of the curation editor)
+     * @param aCas
+     *            the curation CAS
+     * @param aSuggestionVid
+     *            the VID of the curation suggestion as rendered in the curation editor
+     * @return the usernames of the annotators, the representative first. The curator is not
+     *         included. Just the representative if the group cannot be determined.
+     * @throws IOException
+     *             if a CAS cannot be read
+     */
+    public List<String> listSuggestionAnnotators(SourceDocument aDocument, User aDataOwner,
+            CAS aCas, VID aSuggestionVid)
+        throws IOException
+    {
+        var curationVid = CurationVID.parse(aSuggestionVid.getExtensionPayload());
+        var vid = VID.parse(curationVid.getExtensionPayload());
+        var srcUser = curationVid.getUsername();
+        var srcCas = documentService.readAnnotationCas(aDocument, AnnotationSet.forUser(srcUser));
+        var srcFs = selectFsByAddr(srcCas, vid.getId());
+        var layer = annotationService.findLayer(aDocument.getProject(), srcFs);
+
+        var annotators = new ArrayList<String>();
+        annotators.add(srcUser);
+        findConfiguration(aDocument, aDataOwner, aCas, layer, srcUser, srcFs, new LinkedHashMap<>()) //
+                .ifPresent(cfg -> cfg.getCasGroupIds().stream() //
+                        .filter(user -> !user.equals(srcUser)) //
+                        .filter(user -> !user.equals(aDataOwner.getUsername())) //
+                        .sorted() //
+                        .forEach(annotators::add));
+        return annotators;
+    }
+
+    /**
+     * Finds the diff configuration the given annotation of the source user belongs to, considering
+     * the curator and all data owners ready for curation.
+     *
+     * @param aCasses
+     *            receives the CASes the diff was computed over
+     */
+    private Optional<Configuration> findConfiguration(SourceDocument aDocument, User aDataOwner,
+            CAS aCas, AnnotationLayer aLayer, String aSrcUser, FeatureStructure aSrcFs,
+            Map<String, CAS> aCasses)
+    {
+        var sessionOwner = userRepository.getCurrentUsername();
+        var selectedDataOwners = curationSessionService.listDataOwnersReadyForCuration(sessionOwner,
+                aDocument.getProject(), aDocument);
+
+        if (selectedDataOwners.isEmpty()) {
+            return Optional.empty();
+        }
+
+        // The editable target CAS goes first, then the read-only CASes of the other data owners.
+        aCasses.put(aDataOwner.getUsername(), aCas);
+        documentService.readAllAnnotationCases(aDocument, selectedDataOwners)
+                .forEach(aCasses::putIfAbsent);
+
+        var casDiff = createDiff(aCasses, aLayer, aSrcFs);
+        return casDiff.toResult().findConfiguration(aSrcUser, aSrcFs);
     }
 
     private CasDiff createDiff(Map<String, CAS> aCasses, AnnotationLayer aLayer,
