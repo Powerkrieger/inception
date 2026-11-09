@@ -44,7 +44,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.type.CASMetadata;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfEvaluator;
 import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.DiffResult;
+import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
@@ -653,6 +655,14 @@ public class CasMerge
                     continue;
                 }
 
+                // Do not carry a conditionally-hidden (visible_if) value into the merged entry: it
+                // is not part of what the annotator sees for this annotation (e.g. an identifier
+                // left in a field that a later type/subtype change has hidden). The value stays in
+                // the annotator's own CAS; it simply does not propagate into the curated result.
+                if (isHiddenOn(feature, aSourceFs)) {
+                    continue;
+                }
+
                 FeatureUtil.getFeature(sourceFsType, feature)
                         .orElseThrow(() -> new IllegalStateException("Source CAS type ["
                                 + sourceFsType.getName() + "] does not define a feature named ["
@@ -676,6 +686,26 @@ public class CasMerge
                 }
             }
         }
+    }
+
+    /**
+     * @return whether the feature is currently hidden by its {@code visibleIf} condition, evaluated
+     *         against the given feature structure. A feature with no condition is never hidden.
+     */
+    private static boolean isHiddenOn(AnnotationFeature aFeature, FeatureStructure aFS)
+    {
+        var visibleIf = aFeature.getVisibleIf();
+        if (visibleIf == null || visibleIf.isBlank()) {
+            return false;
+        }
+
+        return !VisibleIfEvaluator.isVisible(visibleIf, featureName -> {
+            var f = aFS.getType().getFeatureByBaseName(featureName);
+            if (f == null || !f.getRange().isPrimitive()) {
+                return null;
+            }
+            return aFS.getFeatureValueAsString(f);
+        });
     }
 
     public CasMergeOperationResult mergeSlotFeature(SourceDocument aDoc, String aTargetDataOwner,
