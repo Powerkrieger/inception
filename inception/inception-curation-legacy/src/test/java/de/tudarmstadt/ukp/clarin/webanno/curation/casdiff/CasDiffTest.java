@@ -443,6 +443,40 @@ public class CasDiffTest
     }
 
     @Nested
+    class NonAgreementFeatureTests
+    {
+        @Test
+        public void differ_on_non_agreement_feature__agreement() throws Exception
+        {
+            // identifier is marked non-agreement (e.g. a free-text comment): the annotators differ
+            // on it, but the position still agrees so it can be merged.
+            var adapter = new SpanDiffAdapterImpl(NamedEntity.class.getName(), "value",
+                    "identifier");
+            adapter.setNonAgreementFeatures(Set.of("identifier"));
+
+            var cas1 = createText("");
+            buildAnnotation(cas1, NamedEntity.class.getName()) //
+                    .withFeature("value", "PER") //
+                    .withFeature("identifier", "note A") //
+                    .buildAndAddToIndexes();
+
+            var cas2 = createText("");
+            buildAnnotation(cas2, NamedEntity.class.getName()) //
+                    .withFeature("value", "PER") //
+                    .withFeature("identifier", "note B") //
+                    .buildAndAddToIndexes();
+
+            var casByUser = Map.of("user1", cas1, "user2", cas2);
+
+            var result = doDiff(asList(adapter), casByUser).toResult();
+
+            assertThat(result.size()).isEqualTo(1);
+            assertThat(result.getDifferingConfigurationSets()).isEmpty();
+            assertThat(calculateState(result)).isEqualTo(AGREE);
+        }
+    }
+
+    @Nested
     class MultiValueFeatureTests
     {
         private static final String TYPE_SPAN_MULTI_VALUE = "webanno.custom.SpanMultiValue";

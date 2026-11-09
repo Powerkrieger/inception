@@ -540,7 +540,16 @@ public class CasDiff
         var featureValues1 = featureValueLookup(aFS1);
         var featureValues2 = featureValueLookup(aFS2);
 
+        var nonAgreementFeatures = adapter.getNonAgreementFeatures();
+
         nextFeature: for (var feature : sortedFeatures) {
+            // A feature marked to keep all annotators' values (e.g. a free-text comment) does not
+            // count towards agreement: the merge keeps every annotator's value instead of letting a
+            // difference block it.
+            if (nonAgreementFeatures.contains(feature)) {
+                continue nextFeature;
+            }
+
             // A feature that is conditionally hidden (visible_if) on either annotation is not part
             // of the visible agreement: comparing it would let a stale value left in a now-hidden
             // feature cause a spurious disagreement. The gating features themselves (value, the

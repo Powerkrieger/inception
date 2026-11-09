@@ -40,6 +40,7 @@ import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Sentence;
 import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Token;
 import de.tudarmstadt.ukp.inception.annotation.feature.link.LinkFeatureTraits;
+import de.tudarmstadt.ukp.inception.curation.api.CurationFeatureTraits;
 import de.tudarmstadt.ukp.inception.curation.api.DiffAdapter;
 import de.tudarmstadt.ukp.inception.curation.api.DiffAdapterRegistry;
 import de.tudarmstadt.ukp.inception.curation.api.DiffSupportRegistry;
@@ -88,6 +89,7 @@ public class DiffAdapterRegistryImpl
 
             var adapter = maybeDiffSupport.get().getAdapter(layer, featuresToCompare);
             adapter.setFeatureVisibility(collectFeatureVisibility(featuresByLayer, layer));
+            adapter.setNonAgreementFeatures(collectNonAgreementFeatures(featuresByLayer, layer));
             adapters.add(adapter);
 
             nextFeature: for (var f : featuresByLayer.getOrDefault(layer, emptyList())) {
@@ -156,6 +158,25 @@ public class DiffAdapterRegistryImpl
         }
 
         return visibility;
+    }
+
+    /**
+     * Collects the features on the layer marked to keep all annotators' values on merge (e.g. a
+     * free-text comment). These must not count towards curation agreement, so a difference on them
+     * does not block the merge; the merge then keeps every annotator's value.
+     */
+    private static Set<String> collectNonAgreementFeatures(
+            Map<AnnotationLayer, List<AnnotationFeature>> featuresByLayer, AnnotationLayer layer)
+    {
+        var features = new LinkedHashSet<String>();
+
+        for (var f : featuresByLayer.getOrDefault(layer, emptyList())) {
+            if (f.isEnabled() && CurationFeatureTraits.keepAllValuesOnMerge(f)) {
+                features.add(f.getName());
+            }
+        }
+
+        return features;
     }
 
     private static Set<String> collectFeaturesToCompare(
