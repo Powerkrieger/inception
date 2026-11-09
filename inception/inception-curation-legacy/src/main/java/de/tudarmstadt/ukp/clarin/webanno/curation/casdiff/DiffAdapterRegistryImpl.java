@@ -26,6 +26,7 @@ import static java.util.stream.Collectors.groupingBy;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,7 @@ import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Sentence;
 import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Token;
 import de.tudarmstadt.ukp.inception.annotation.feature.link.LinkFeatureTraits;
+import de.tudarmstadt.ukp.inception.curation.api.CurationFeatureTraits;
 import de.tudarmstadt.ukp.inception.curation.api.DiffAdapter;
 import de.tudarmstadt.ukp.inception.curation.api.DiffAdapterRegistry;
 import de.tudarmstadt.ukp.inception.curation.api.DiffSupportRegistry;
@@ -86,6 +88,8 @@ public class DiffAdapterRegistryImpl
             var featuresToCompare = collectFeaturesToCompare(featuresByLayer, layer);
 
             var adapter = maybeDiffSupport.get().getAdapter(layer, featuresToCompare);
+            adapter.setFeatureVisibility(collectFeatureVisibility(featuresByLayer, layer));
+            adapter.setNonAgreementFeatures(collectNonAgreementFeatures(featuresByLayer, layer));
             adapters.add(adapter);
 
             nextFeature: for (var f : featuresByLayer.getOrDefault(layer, emptyList())) {
@@ -135,6 +139,44 @@ public class DiffAdapterRegistryImpl
         }
 
         return adapters;
+    }
+
+    /**
+     * Collects the {@code visibleIf} expression of every enabled feature on the layer that has one.
+     * This lets {@link CasDiff} skip a conditionally-hidden feature when comparing annotations, so
+     * a stale value left in a currently-hidden feature does not cause a spurious disagreement.
+     */
+    private static Map<String, String> collectFeatureVisibility(
+            Map<AnnotationLayer, List<AnnotationFeature>> featuresByLayer, AnnotationLayer layer)
+    {
+        var visibility = new HashMap<String, String>();
+
+        for (var f : featuresByLayer.getOrDefault(layer, emptyList())) {
+            if (f.isEnabled() && f.getVisibleIf() != null && !f.getVisibleIf().isBlank()) {
+                visibility.put(f.getName(), f.getVisibleIf());
+            }
+        }
+
+        return visibility;
+    }
+
+    /**
+     * Collects the features on the layer marked to keep all annotators' values on merge (e.g. a
+     * free-text comment). These must not count towards curation agreement, so a difference on them
+     * does not block the merge; the merge then keeps every annotator's value.
+     */
+    private static Set<String> collectNonAgreementFeatures(
+            Map<AnnotationLayer, List<AnnotationFeature>> featuresByLayer, AnnotationLayer layer)
+    {
+        var features = new LinkedHashSet<String>();
+
+        for (var f : featuresByLayer.getOrDefault(layer, emptyList())) {
+            if (f.isEnabled() && CurationFeatureTraits.keepAllValuesOnMerge(f)) {
+                features.add(f.getName());
+            }
+        }
+
+        return features;
     }
 
     private static Set<String> collectFeaturesToCompare(

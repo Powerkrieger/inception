@@ -70,6 +70,7 @@ public class StringFeatureTraits
     private boolean retainSuggestionInfo = false;
     private @JsonInclude(NON_DEFAULT) boolean multipleRows = false;
     private @JsonInclude(NON_DEFAULT) boolean dynamicSize = false;
+    private @JsonInclude(NON_DEFAULT) boolean keepAllValuesOnMerge = false;
     private @JsonInclude(NON_EMPTY) List<KeyBinding> keyBindings = new ArrayList<>();
     private @JsonInclude(NON_EMPTY) String defaultValue;
     private @JsonInclude(NON_EMPTY) List<PermissionLevel> rolesSeeingSuggestionInfo = new ArrayList<>();
@@ -97,6 +98,22 @@ public class StringFeatureTraits
     public void setDynamicSize(boolean aDynamicSize)
     {
         dynamicSize = aDynamicSize;
+    }
+
+    /**
+     * @return whether curation keeps all annotators' values for this feature instead of letting a
+     *         difference block the merge. When {@code true}, the feature does not count towards
+     *         curation agreement and the merged annotation receives all annotators' distinct values
+     *         (attributed). Intended for free-text note/comment features.
+     */
+    public boolean isKeepAllValuesOnMerge()
+    {
+        return keepAllValuesOnMerge;
+    }
+
+    public void setKeepAllValuesOnMerge(boolean aKeepAllValuesOnMerge)
+    {
+        keepAllValuesOnMerge = aKeepAllValuesOnMerge;
     }
 
     public int getCollapsedRows()

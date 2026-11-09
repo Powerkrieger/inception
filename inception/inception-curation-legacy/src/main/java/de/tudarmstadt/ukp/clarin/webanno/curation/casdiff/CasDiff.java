@@ -42,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.TreeMap;
 
 import org.apache.uima.cas.ArrayFS;
@@ -56,6 +57,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.type.CasMetadataSupport;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfEvaluator;
 import de.tudarmstadt.ukp.inception.curation.api.DiffAdapter;
 import de.tudarmstadt.ukp.inception.curation.api.Position;
 import de.tudarmstadt.ukp.inception.support.uima.ICasUtil;
@@ -461,6 +463,22 @@ public class CasDiff
     }
 
     /**
+     * @return a lookup from feature name to the primitive string value of that feature on the given
+     *         feature structure, as required by {@link VisibleIfEvaluator}. Non-primitive and
+     *         unknown features resolve to {@code null}.
+     */
+    private static Function<String, String> featureValueLookup(FeatureStructure aFS)
+    {
+        return featureName -> {
+            var feature = aFS.getType().getFeatureByBaseName(featureName);
+            if (feature == null || !feature.getRange().isPrimitive()) {
+                return null;
+            }
+            return aFS.getFeatureValueAsString(feature);
+        };
+    }
+
+    /**
      * Compare two feature structure to each other. Comparison is done recursively, but stops at
      * feature values that are annotations. For these, only offsets are checked, but feature values
      * are not inspected further. If the annotations are relevant, their type should be added to the
@@ -519,7 +537,31 @@ public class CasDiff
                 .distinct() //
                 .collect(toCollection(ArrayList::new));
 
+        var featureValues1 = featureValueLookup(aFS1);
+        var featureValues2 = featureValueLookup(aFS2);
+
+        var nonAgreementFeatures = adapter.getNonAgreementFeatures();
+
         nextFeature: for (var feature : sortedFeatures) {
+            // A feature marked to keep all annotators' values (e.g. a free-text comment) does not
+            // count towards agreement: the merge keeps every annotator's value instead of letting a
+            // difference block it.
+            if (nonAgreementFeatures.contains(feature)) {
+                continue nextFeature;
+            }
+
+            // A feature that is conditionally hidden (visible_if) on either annotation is not part
+            // of the visible agreement: comparing it would let a stale value left in a now-hidden
+            // feature cause a spurious disagreement. The gating features themselves (value, the
+            // family type, ...) have no / an always-true condition here and are still compared, so
+            // a genuine difference on a gating feature still disagrees.
+            var visibleIf = adapter.getVisibleIf(feature);
+            if (visibleIf != null && !visibleIf.isBlank()
+                    && (!VisibleIfEvaluator.isVisible(visibleIf, featureValues1)
+                            || !VisibleIfEvaluator.isVisible(visibleIf, featureValues2))) {
+                continue nextFeature;
+            }
+
             var featureValueEqual = equalsPrimitiveOrMultiValueFeature(aFS1, aFS2, feature);
             if (featureValueEqual != null) {
                 if (!featureValueEqual) {

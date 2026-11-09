@@ -19,6 +19,7 @@ package de.tudarmstadt.ukp.inception.curation.api;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.uima.cas.CAS;
@@ -68,5 +69,51 @@ public interface DiffAdapter
     default void setRelationContextFingerprinter(RelationContextFingerprinter aFingerprinter)
     {
         // Ignored by default
+    }
+
+    /**
+     * Records the {@code visibleIf} expression of each feature (by name) so that curation can skip
+     * conditionally-hidden features when comparing feature structures. Features absent from the map
+     * (or mapped to a blank expression) are treated as always visible.
+     *
+     * @param aVisibleIfByFeature
+     *            feature name to its {@code visibleIf} expression.
+     */
+    default void setFeatureVisibility(Map<String, String> aVisibleIfByFeature)
+    {
+        // Optional - implementations that do not track visibility treat all features as visible.
+    }
+
+    /**
+     * @param aFeature
+     *            a feature name.
+     * @return the {@code visibleIf} expression of the feature, or {@code null} if the feature has
+     *         no visibility condition (always visible).
+     */
+    default String getVisibleIf(String aFeature)
+    {
+        return null;
+    }
+
+    /**
+     * Records the names of features that must not count towards curation agreement (e.g. free-text
+     * comment/note features kept from all annotators). A difference on such a feature does not
+     * prevent two annotations from being considered equal.
+     *
+     * @param aFeatures
+     *            feature names to exclude from agreement.
+     */
+    default void setNonAgreementFeatures(Set<String> aFeatures)
+    {
+        // Optional - implementations that do not track this treat all features as
+        // agreement-bearing.
+    }
+
+    /**
+     * @return names of features excluded from curation agreement. Never {@code null}.
+     */
+    default Set<String> getNonAgreementFeatures()
+    {
+        return java.util.Collections.emptySet();
     }
 }

@@ -244,6 +244,61 @@ class CasMergeSpanTest
                 .buildAndAddToIndexes();
     }
 
+    @Test
+    void thatConditionallyHiddenFeatureIsNotCopiedIntoMerge() throws Exception
+    {
+        // The identifier is only shown when value == "GENE". Here the value is "OTHER", so the
+        // identifier left on the source annotation (e.g. a leftover from an earlier value) is
+        // hidden and must not be carried into the merged entry.
+        neIdentifierFeature.setVisibleIf("value == \"GENE\"");
+
+        var sourceCas = createCas();
+        var sourceFS = buildAnnotation(sourceCas, NamedEntity.class) //
+                .at(0, 0) //
+                .withFeature(NamedEntity._FeatName_value, "OTHER") //
+                .withFeature(NamedEntity._FeatName_identifier, "SHOULD_NOT_BE_COPIED") //
+                .buildAndAddToIndexes();
+
+        var targetCas = createCas();
+        createToken(targetCas, 0, 0);
+
+        sut.mergeSpanAnnotation(document, DUMMY_USER, neLayer, targetCas, sourceFS);
+
+        assertThat(targetCas.select(NamedEntity.class).coveredBy(0, 0).asList()) //
+                .as("Hidden conditional feature value is not carried into the merged entry") //
+                .extracting( //
+                        a -> getFeature(a, NamedEntity._FeatName_value, String.class), //
+                        a -> getFeature(a, NamedEntity._FeatName_identifier, String.class)) //
+                .containsExactly(tuple("OTHER", null));
+    }
+
+    @Test
+    void thatConditionallyVisibleFeatureIsCopiedIntoMerge() throws Exception
+    {
+        // Counterpart to the test above: when the condition holds, the identifier is visible and
+        // must be copied into the merged entry as usual.
+        neIdentifierFeature.setVisibleIf("value == \"GENE\"");
+
+        var sourceCas = createCas();
+        var sourceFS = buildAnnotation(sourceCas, NamedEntity.class) //
+                .at(0, 0) //
+                .withFeature(NamedEntity._FeatName_value, "GENE") //
+                .withFeature(NamedEntity._FeatName_identifier, "KEPT") //
+                .buildAndAddToIndexes();
+
+        var targetCas = createCas();
+        createToken(targetCas, 0, 0);
+
+        sut.mergeSpanAnnotation(document, DUMMY_USER, neLayer, targetCas, sourceFS);
+
+        assertThat(targetCas.select(NamedEntity.class).coveredBy(0, 0).asList()) //
+                .as("Visible conditional feature value is copied into the merged entry") //
+                .extracting( //
+                        a -> getFeature(a, NamedEntity._FeatName_value, String.class), //
+                        a -> getFeature(a, NamedEntity._FeatName_identifier, String.class)) //
+                .containsExactly(tuple("GENE", "KEPT"));
+    }
+
     private AnnotationFS createNEAnno(CAS aCas, String aValue, int aBegin, int aEnd)
     {
         // Ensure CAS has text if not already set

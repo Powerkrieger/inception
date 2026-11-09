@@ -18,6 +18,8 @@
 package de.tudarmstadt.ukp.inception.curation.merge;
 
 import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.getAddr;
+import static de.tudarmstadt.ukp.inception.support.uima.ICasUtil.selectAnnotationByAddr;
+import static java.util.stream.Collectors.joining;
 import static de.tudarmstadt.ukp.inception.support.uima.WebAnnoCasUtil.copyDocumentMetadata;
 import static de.tudarmstadt.ukp.inception.support.uima.WebAnnoCasUtil.createDocumentMetadata;
 import static de.tudarmstadt.ukp.inception.support.uima.WebAnnoCasUtil.createSentence;
@@ -31,6 +33,7 @@ import static org.apache.uima.fit.util.CasUtil.getType;
 
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -44,7 +47,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
 import de.tudarmstadt.ukp.clarin.webanno.api.type.CASMetadata;
+import de.tudarmstadt.ukp.clarin.webanno.constraints.visibility.VisibleIfEvaluator;
+import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.Configuration;
 import de.tudarmstadt.ukp.clarin.webanno.curation.casdiff.DiffResult;
+import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationLayer;
 import de.tudarmstadt.ukp.clarin.webanno.model.Project;
 import de.tudarmstadt.ukp.clarin.webanno.model.SourceDocument;
@@ -57,6 +63,7 @@ import de.tudarmstadt.ukp.inception.annotation.layer.document.api.DocumentPositi
 import de.tudarmstadt.ukp.inception.annotation.layer.relation.api.RelationPosition;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanPosition;
 import de.tudarmstadt.ukp.inception.annotation.storage.CasMetadataUtils;
+import de.tudarmstadt.ukp.inception.curation.api.CurationFeatureTraits;
 import de.tudarmstadt.ukp.inception.curation.api.Position;
 import de.tudarmstadt.ukp.inception.curation.merge.strategy.DefaultMergeStrategy;
 import de.tudarmstadt.ukp.inception.curation.merge.strategy.MergeStrategy;
@@ -558,6 +565,9 @@ public class CasMerge
                     localContext.updated++;
                     break;
                 }
+
+                keepAllAnnotatorValues(layer, cfgsToMerge, aCasMap, aTargetCas,
+                        result.targetAddress());
             }
             catch (AnnotationPreservedException e) {
                 LOG.trace(" `-> preserved span annotation [{}]: {}", sourceFS.getAddress(),
@@ -653,6 +663,14 @@ public class CasMerge
                     continue;
                 }
 
+                // Do not carry a conditionally-hidden (visible_if) value into the merged entry: it
+                // is not part of what the annotator sees for this annotation (e.g. an identifier
+                // left in a field that a later type/subtype change has hidden). The value stays in
+                // the annotator's own CAS; it simply does not propagate into the curated result.
+                if (isHiddenOn(feature, aSourceFs)) {
+                    continue;
+                }
+
                 FeatureUtil.getFeature(sourceFsType, feature)
                         .orElseThrow(() -> new IllegalStateException("Source CAS type ["
                                 + sourceFsType.getName() + "] does not define a feature named ["
@@ -676,6 +694,87 @@ public class CasMerge
                 }
             }
         }
+    }
+
+    /**
+     * For features marked {@code keepAllValuesOnMerge} (e.g. a free-text comment), sets the merged
+     * annotation's value to all annotators' distinct values. A value contributed by more than one
+     * annotator - or alongside other annotators' values - is attributed with the contributing data
+     * owners; a single value from a single annotator is kept verbatim. This runs after the span has
+     * been merged (its features copied from the representative) and overwrites those features.
+     */
+    private void keepAllAnnotatorValues(AnnotationLayer aLayer, Configuration aConfiguration,
+            Map<String, CAS> aCasMap, CAS aTargetCas, int aTargetAddress)
+    {
+        var mergedFs = selectAnnotationByAddr(aTargetCas, aTargetAddress);
+
+        for (var feature : context.listSupportedFeatures(aLayer)) {
+            if (!CurationFeatureTraits.keepAllValuesOnMerge(feature)) {
+                continue;
+            }
+
+            var targetFeature = mergedFs.getType().getFeatureByBaseName(feature.getName());
+            if (targetFeature == null || !targetFeature.getRange().isPrimitive()) {
+                continue;
+            }
+
+            // Group contributing data owners by value: de-duplicates identical values and keeps a
+            // deterministic order (getCasGroupIds is sorted).
+            var ownersByValue = new LinkedHashMap<String, List<String>>();
+            for (var casGroupId : aConfiguration.getCasGroupIds()) {
+                var fs = aConfiguration.getFs(casGroupId, aCasMap);
+                if (fs == null) {
+                    continue;
+                }
+                var f = fs.getType().getFeatureByBaseName(feature.getName());
+                if (f == null) {
+                    continue;
+                }
+                var value = fs.getFeatureValueAsString(f);
+                if (value == null || value.isBlank()) {
+                    continue;
+                }
+                ownersByValue.computeIfAbsent(value.strip(), $ -> new ArrayList<>())
+                        .add(casGroupId);
+            }
+
+            if (ownersByValue.isEmpty()) {
+                continue;
+            }
+
+            String merged;
+            if (ownersByValue.size() == 1 && ownersByValue.values().iterator().next().size() == 1) {
+                // A single value from a single annotator is kept verbatim (no attribution noise).
+                merged = ownersByValue.keySet().iterator().next();
+            }
+            else {
+                merged = ownersByValue.entrySet().stream() //
+                        .map(e -> e.getKey() + " [" + String.join(", ", e.getValue()) + "]") //
+                        .collect(joining("\n"));
+            }
+
+            mergedFs.setFeatureValueFromString(targetFeature, merged);
+        }
+    }
+
+    /**
+     * @return whether the feature is currently hidden by its {@code visibleIf} condition, evaluated
+     *         against the given feature structure. A feature with no condition is never hidden.
+     */
+    private static boolean isHiddenOn(AnnotationFeature aFeature, FeatureStructure aFS)
+    {
+        var visibleIf = aFeature.getVisibleIf();
+        if (visibleIf == null || visibleIf.isBlank()) {
+            return false;
+        }
+
+        return !VisibleIfEvaluator.isVisible(visibleIf, featureName -> {
+            var f = aFS.getType().getFeatureByBaseName(featureName);
+            if (f == null || !f.getRange().isPrimitive()) {
+                return null;
+            }
+            return aFS.getFeatureValueAsString(f);
+        });
     }
 
     public CasMergeOperationResult mergeSlotFeature(SourceDocument aDoc, String aTargetDataOwner,
