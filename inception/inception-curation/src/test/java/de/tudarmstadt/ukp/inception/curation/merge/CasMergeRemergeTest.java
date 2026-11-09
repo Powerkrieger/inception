@@ -30,6 +30,8 @@ import static de.tudarmstadt.ukp.inception.curation.merge.CurationTestUtils.crea
 import static de.tudarmstadt.ukp.inception.curation.merge.CurationTestUtils.makeLinkFS;
 import static de.tudarmstadt.ukp.inception.curation.merge.CurationTestUtils.makeLinkHostFS;
 import static de.tudarmstadt.ukp.inception.support.uima.AnnotationBuilder.buildAnnotation;
+import static de.tudarmstadt.ukp.inception.support.uima.WebAnnoCasUtil.createToken;
+import static org.apache.uima.fit.util.FSUtil.getFeature;
 import static de.tudarmstadt.ukp.inception.support.uima.WebAnnoCasUtil.createCasCopy;
 import static java.util.Arrays.asList;
 import static org.apache.uima.fit.factory.JCasFactory.createJCas;
@@ -50,12 +52,16 @@ import java.util.Map;
 import org.apache.uima.cas.CAS;
 import org.apache.uima.cas.Type;
 import org.apache.uima.cas.text.AnnotationFS;
+import java.util.Set;
+
 import org.apache.uima.fit.factory.CasFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 
 import de.tudarmstadt.ukp.dkpro.core.api.lexmorph.type.pos.POS;
 import de.tudarmstadt.ukp.dkpro.core.api.ner.type.NamedEntity;
+import de.tudarmstadt.ukp.inception.annotation.feature.string.StringFeatureTraits;
+import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
 import de.tudarmstadt.ukp.dkpro.core.api.segmentation.type.Token;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.api.SpanPosition;
 import de.tudarmstadt.ukp.inception.annotation.layer.span.curation.SpanDiffAdapterImpl;
@@ -149,6 +155,53 @@ public class CasMergeRemergeTest
 
         assertThat(curatorCas.select(POS.class).asList()).hasSize(1);
         assertThat(calculateState(result)).isEqualTo(INCOMPLETE);
+    }
+
+    @Test
+    public void thatKeepAllValuesOnMergeFeatureKeepsAllAnnotatorsValuesAttributed() throws Exception
+    {
+        // The identifier is marked keep-all-on-merge (like a free-text comment): annotators differ
+        // on it, which must NOT block the merge, and the merged entry keeps both values attributed.
+        var traits = new StringFeatureTraits();
+        traits.setKeepAllValuesOnMerge(true);
+        neIdentifierFeature.setTraits(JSONUtil.toJsonString(traits));
+
+        var nerAdapter = new SpanDiffAdapterImpl(NamedEntity.class.getName(),
+                NamedEntity._FeatName_value, NamedEntity._FeatName_identifier);
+        nerAdapter.setNonAgreementFeatures(Set.of(NamedEntity._FeatName_identifier));
+
+        var user1 = CasFactory.createText("word");
+        createToken(user1, 0, 4);
+        buildAnnotation(user1, NamedEntity.class).at(0, 4) //
+                .withFeature(NamedEntity._FeatName_value, "PER") //
+                .withFeature(NamedEntity._FeatName_identifier, "note A") //
+                .buildAndAddToIndexes();
+
+        var user2 = CasFactory.createText("word");
+        createToken(user2, 0, 4);
+        buildAnnotation(user2, NamedEntity.class).at(0, 4) //
+                .withFeature(NamedEntity._FeatName_value, "PER") //
+                .withFeature(NamedEntity._FeatName_identifier, "note B") //
+                .buildAndAddToIndexes();
+
+        var casByUser = new LinkedHashMap<String, CAS>();
+        casByUser.put("ann1", user1);
+        casByUser.put("ann2", user2);
+
+        var curatorCas = createCasCopy(user1);
+
+        var result = doDiff(asList(nerAdapter), casByUser).toResult();
+
+        // The differing comment does not split the position into differing configurations.
+        assertThat(result.getDifferingConfigurationSets()).isEmpty();
+
+        sut.clearAndMergeCas(result, document, DUMMY_USER, curatorCas, casByUser);
+
+        assertThat(curatorCas.select(NamedEntity.class).asList()) //
+                .extracting( //
+                        a -> getFeature(a, NamedEntity._FeatName_value, String.class), //
+                        a -> getFeature(a, NamedEntity._FeatName_identifier, String.class)) //
+                .containsExactly(tuple("PER", "note A [ann1]\nnote B [ann2]"));
     }
 
     @Test

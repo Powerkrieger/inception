@@ -94,4 +94,26 @@ public interface DiffAdapter
     {
         return null;
     }
+
+    /**
+     * Records the names of features that must not count towards curation agreement (e.g. free-text
+     * comment/note features kept from all annotators). A difference on such a feature does not
+     * prevent two annotations from being considered equal.
+     *
+     * @param aFeatures
+     *            feature names to exclude from agreement.
+     */
+    default void setNonAgreementFeatures(Set<String> aFeatures)
+    {
+        // Optional - implementations that do not track this treat all features as
+        // agreement-bearing.
+    }
+
+    /**
+     * @return names of features excluded from curation agreement. Never {@code null}.
+     */
+    default Set<String> getNonAgreementFeatures()
+    {
+        return java.util.Collections.emptySet();
+    }
 }

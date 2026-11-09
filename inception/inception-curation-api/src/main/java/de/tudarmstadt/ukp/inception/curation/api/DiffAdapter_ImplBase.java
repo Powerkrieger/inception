@@ -40,6 +40,8 @@ public abstract class DiffAdapter_ImplBase
 
     private Map<String, String> visibleIfByFeature = Map.of();
 
+    private Set<String> nonAgreementFeatures = Set.of();
+
     private RelationContextFingerprinter relationContextFingerprinter = //
             RelationContextFingerprinter.NONE;
 
@@ -80,6 +82,18 @@ public abstract class DiffAdapter_ImplBase
     public String getVisibleIf(String aFeature)
     {
         return visibleIfByFeature.get(aFeature);
+    }
+
+    @Override
+    public void setNonAgreementFeatures(Set<String> aFeatures)
+    {
+        nonAgreementFeatures = aFeatures != null ? Set.copyOf(aFeatures) : Set.of();
+    }
+
+    @Override
+    public Set<String> getNonAgreementFeatures()
+    {
+        return nonAgreementFeatures;
     }
 
     @Override
