@@ -26,6 +26,7 @@ import static java.util.stream.Collectors.groupingBy;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -86,6 +87,7 @@ public class DiffAdapterRegistryImpl
             var featuresToCompare = collectFeaturesToCompare(featuresByLayer, layer);
 
             var adapter = maybeDiffSupport.get().getAdapter(layer, featuresToCompare);
+            adapter.setFeatureVisibility(collectFeatureVisibility(featuresByLayer, layer));
             adapters.add(adapter);
 
             nextFeature: for (var f : featuresByLayer.getOrDefault(layer, emptyList())) {
@@ -135,6 +137,25 @@ public class DiffAdapterRegistryImpl
         }
 
         return adapters;
+    }
+
+    /**
+     * Collects the {@code visibleIf} expression of every enabled feature on the layer that has one.
+     * This lets {@link CasDiff} skip a conditionally-hidden feature when comparing annotations, so
+     * a stale value left in a currently-hidden feature does not cause a spurious disagreement.
+     */
+    private static Map<String, String> collectFeatureVisibility(
+            Map<AnnotationLayer, List<AnnotationFeature>> featuresByLayer, AnnotationLayer layer)
+    {
+        var visibility = new HashMap<String, String>();
+
+        for (var f : featuresByLayer.getOrDefault(layer, emptyList())) {
+            if (f.isEnabled() && f.getVisibleIf() != null && !f.getVisibleIf().isBlank()) {
+                visibility.put(f.getName(), f.getVisibleIf());
+            }
+        }
+
+        return visibility;
     }
 
     private static Set<String> collectFeaturesToCompare(

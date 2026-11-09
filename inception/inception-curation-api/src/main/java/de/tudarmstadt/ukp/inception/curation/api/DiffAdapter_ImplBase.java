@@ -38,6 +38,8 @@ public abstract class DiffAdapter_ImplBase
 
     private final Map<String, LinkFeatureDecl> linkFeatures = new LinkedHashMap<>();
 
+    private Map<String, String> visibleIfByFeature = Map.of();
+
     private RelationContextFingerprinter relationContextFingerprinter = //
             RelationContextFingerprinter.NONE;
 
@@ -65,6 +67,19 @@ public abstract class DiffAdapter_ImplBase
     public RelationContextFingerprinter getRelationContextFingerprinter()
     {
         return relationContextFingerprinter;
+    }
+
+    @Override
+    public void setFeatureVisibility(Map<String, String> aVisibleIfByFeature)
+    {
+        visibleIfByFeature = aVisibleIfByFeature != null ? Map.copyOf(aVisibleIfByFeature)
+                : Map.of();
+    }
+
+    @Override
+    public String getVisibleIf(String aFeature)
+    {
+        return visibleIfByFeature.get(aFeature);
     }
 
     @Override

@@ -379,6 +379,70 @@ public class CasDiffTest
     }
 
     @Nested
+    class ConditionalFeatureVisibilityTests
+    {
+        @Test
+        public void agree_on_visible_differ_on_hidden__agreement() throws Exception
+        {
+            // The identifier is only visible when value == "GENE". Both annotators set
+            // value="OTHER" (identifier hidden); one has a stale identifier left in the hidden
+            // field. Comparing only visible features, the two annotations agree.
+            var adapter = new SpanDiffAdapterImpl(NamedEntity.class.getName(), "value",
+                    "identifier");
+            adapter.setFeatureVisibility(Map.of("identifier", "value == \"GENE\""));
+
+            var cas1 = createText("");
+            buildAnnotation(cas1, NamedEntity.class.getName()) //
+                    .withFeature("value", "OTHER") //
+                    .withFeature("identifier", "stale-leftover") //
+                    .buildAndAddToIndexes();
+
+            var cas2 = createText("");
+            buildAnnotation(cas2, NamedEntity.class.getName()) //
+                    .withFeature("value", "OTHER") //
+                    .buildAndAddToIndexes();
+
+            var casByUser = Map.of("user1", cas1, "user2", cas2);
+
+            var result = doDiff(asList(adapter), casByUser).toResult();
+
+            assertThat(result.size()).isEqualTo(1);
+            assertThat(result.getDifferingConfigurationSets()).isEmpty();
+            assertThat(calculateState(result)).isEqualTo(AGREE);
+        }
+
+        @Test
+        public void differ_on_visible__disagreement() throws Exception
+        {
+            // Counterpart: when the gating value makes the identifier visible, a difference on it
+            // is a real disagreement.
+            var adapter = new SpanDiffAdapterImpl(NamedEntity.class.getName(), "value",
+                    "identifier");
+            adapter.setFeatureVisibility(Map.of("identifier", "value == \"GENE\""));
+
+            var cas1 = createText("");
+            buildAnnotation(cas1, NamedEntity.class.getName()) //
+                    .withFeature("value", "GENE") //
+                    .withFeature("identifier", "id-1") //
+                    .buildAndAddToIndexes();
+
+            var cas2 = createText("");
+            buildAnnotation(cas2, NamedEntity.class.getName()) //
+                    .withFeature("value", "GENE") //
+                    .withFeature("identifier", "id-2") //
+                    .buildAndAddToIndexes();
+
+            var casByUser = Map.of("user1", cas1, "user2", cas2);
+
+            var result = doDiff(asList(adapter), casByUser).toResult();
+
+            assertThat(result.size()).isEqualTo(1);
+            assertThat(result.getDifferingConfigurationSets()).hasSize(1);
+            assertThat(calculateState(result)).isEqualTo(DISAGREE);
+        }
+    }
+
+    @Nested
     class MultiValueFeatureTests
     {
         private static final String TYPE_SPAN_MULTI_VALUE = "webanno.custom.SpanMultiValue";
