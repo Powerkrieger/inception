@@ -18,6 +18,7 @@
 package de.tudarmstadt.ukp.inception.curation.api;
 
 import java.io.IOException;
+import java.util.Map;
 
 import de.tudarmstadt.ukp.clarin.webanno.model.AnnotationFeature;
 import de.tudarmstadt.ukp.inception.support.json.JSONUtil;
@@ -52,7 +53,8 @@ public final class CurationFeatureTraits
         }
 
         try {
-            return JSONUtil.fromJsonString(traits).path(KEEP_ALL_VALUES_ON_MERGE).asBoolean(false);
+            Map<?, ?> values = JSONUtil.fromJsonString(Map.class, traits);
+            return Boolean.TRUE.equals(values.get(KEEP_ALL_VALUES_ON_MERGE));
         }
         catch (IOException e) {
             return false;
